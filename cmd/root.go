@@ -29,6 +29,7 @@ import (
 	"html/template"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -287,6 +288,7 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, r *http.Request) {
 		ActionText   string
 		Servers      []*Server
 		PrimaryColor string
+		TogglePath string
 	}
 
 	data := TemplateData{
@@ -294,6 +296,7 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, r *http.Request) {
 		Servers:      sb.Servers,
 		ActionText:   "Pending",
 		PrimaryColor: viper.GetString("primary-color"),
+		TogglePath:   filepath.Join(viper.GetString("path-prefix"), "toggle"),
 	}
 
 	status := sb.GetStatus()

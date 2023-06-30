@@ -187,7 +187,7 @@
 	}
 
 	async function toggleServer() {
-		await fetchFromServer("/toggle", "POST");
+		await fetchFromServer("{{ .TogglePath }}", "POST");
 		location.reload();
 	}
 </script>
