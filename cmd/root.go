@@ -75,6 +75,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.river-guide.yaml)")
 
 	rootCmd.Flags().IntP("port", "p", 3000, "port to listen on")
+	rootCmd.Flags().String("path-prefix", "/", "prefix to serve the web interface on")
 	rootCmd.Flags().StringToStringP("tags", "t", map[string]string{}, "filter instance using tag key-value pairs (e.g. Environment=dev,Name=dev.example.com)")
 	rootCmd.Flags().String("title", "Environment Control", "title to display on the web page")
 	rootCmd.Flags().String("primary-color", "#333", "primary color for text")
@@ -364,18 +365,19 @@ func serve() {
 	apiHandler := &APIHandler{svc: ec2.NewFromConfig(cfg)}
 
 	// Create a new router
-	router := mux.NewRouter()
+	r := mux.NewRouter()
+	rp := r.PathPrefix(viper.GetString("path-prefix")).Subrouter()
 
 	// Define API routes
-	router.HandleFunc("/", apiHandler.IndexHandler).Methods("GET")
-	router.HandleFunc("/favicon.ico", FaviconHandler).Methods("GET")
-	router.HandleFunc("/toggle", apiHandler.ToggleHandler).Methods("POST")
+	rp.HandleFunc("/", apiHandler.IndexHandler).Methods("GET")
+	rp.HandleFunc("/favicon.ico", FaviconHandler).Methods("GET")
+	rp.HandleFunc("/toggle", apiHandler.ToggleHandler).Methods("POST")
 
 	// Add middleware
 	n := negroni.Classic() // Includes some default middlewares
-	n.UseHandler(router)
+	n.UseHandler(rp)
 
 	// Start the HTTP server
-	log.Infof("Server running on http://localhost:%v", viper.GetInt("port"))
+	log.Infof("Server running on http://localhost:%v%v", viper.GetInt("port"), viper.GetString("path-prefix"))
 	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(viper.GetInt("port")), n))
 }
