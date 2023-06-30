@@ -1,4 +1,4 @@
-module river-guide
+module github.com/frgrisk/river-guide
 
 go 1.20
 

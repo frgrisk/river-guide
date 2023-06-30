@@ -21,7 +21,7 @@ To use River-Guide, you'll need to have:
 ## Installation
 
 ```bash
-go get github.com/frgrisk/river-guide@latest
+go install github.com/frgrisk/river-guide@latest
 ```
 
 ## Usage

@@ -21,7 +21,7 @@ THE SOFTWARE.
 */
 package main
 
-import "river-guide/cmd"
+import "github.com/frgrisk/river-guide/cmd"
 
 func main() {
 	cmd.Execute()
