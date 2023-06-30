@@ -20,16 +20,16 @@ To use River-Guide, you'll need to have:
 
 ## Installation
 
-```shell
-$ go get github.com/frgrisk/river-guide
+```bash
+go get github.com/frgrisk/river-guide@latest
 ```
 
 ## Usage
 
 To start the server, use the following command:
 
-```shell
-$ river-guide
+```bash
+river-guide
 ```
 
 ### Flags
@@ -69,7 +69,7 @@ environment variables to set parameters. The application will automatically
 look for any environment variables beginning with `RIVER_GUIDE_`. For 
 instance, to set the title, you could use the following command:
 
-```shell
+```bash
 export RIVER_GUIDE_TITLE="My Custom Title"
 ```
 
