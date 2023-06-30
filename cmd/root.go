@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -181,6 +182,11 @@ func (h *APIHandler) GetServerBank(tags map[string]string) (*ServerBank, error) 
 		}
 	}
 
+	// Sort servers by name
+	sort.Slice(serverBank.Servers, func(i, j int) bool {
+		return serverBank.Servers[i].Name < serverBank.Servers[j].Name
+	})
+
 	return serverBank, nil
 }
 
@@ -288,7 +294,7 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, r *http.Request) {
 		ActionText   string
 		Servers      []*Server
 		PrimaryColor string
-		TogglePath string
+		TogglePath   string
 	}
 
 	data := TemplateData{
