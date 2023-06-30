@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;700&display=swap" rel="stylesheet">
+	<title>{{ .Title }}</title>
+	<style>
+		* {
+			font-family: 'IBM Plex Sans', sans-serif;
+		}
+		body {
+			background-color: #f1f1f1;
+			margin: 0;
+			padding: 20px;
+			color: {{ .PrimaryColor }};
+		}
+
+		h1 {
+			text-align: center;
+			color: {{ .PrimaryColor }};
+		}
+
+		.container {
+			max-width: 600px;
+			margin: 0 auto;
+			background-color: #fff;
+			border-radius: 8px;
+			padding: 20px;
+			box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+		}
+
+		button {
+			padding: 10px 20px;
+		{{if eq .ActionText "Start"}}
+			background-color: #4CAF50;
+			color: #fff;
+		{{else if eq .ActionText "Stop"}}
+			background-color: #F44336;
+			color: #fff;
+		{{else}}
+			background-color: #FFEB3B;
+			pointer-events: none; /* Disables the button when 'pending' */
+			color: #333;
+		{{end}}
+			border: none;
+			border-radius: 4px;
+			cursor: pointer;
+			height: 50px; /* Explicitly set button height */
+			font-size: 18px; /* Increase the font size */
+			font-weight: bold; /* Make the text bold */
+			text-transform: uppercase;
+		}
+
+		/* This new class will be added to the parent container of the button and the loading indicator */
+		.action-container {
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			gap: 10px; /* Space between button and loading indicator */
+		}
+
+		p {
+			margin: 10px 0;
+		}
+
+		.server-list {
+			margin-top: 20px;
+		}
+
+		.server-item {
+			display: flex;
+			align-items: center;
+			padding: 10px;
+			background-color: #fff;
+			border-radius: 4px;
+			box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+			margin-bottom: 10px;
+		}
+
+		.server-name {
+			font-weight: bold;
+			flex-grow: 1;
+		}
+
+		.server-status {
+			padding: 6px 10px;
+			border-radius: 4px;
+			color: #fff;
+			text-transform: uppercase;
+			font-size: 12px;
+			font-weight: bold;
+		}
+
+		.server-status.running {
+			background-color: #4CAF50;
+		}
+
+		.server-status.stopped {
+			background-color: #F44336;
+		}
+
+		.server-status.pending {
+			background-color: #FFEB3B;
+			color: #333;
+		}
+
+		.server-status.stopping {
+			background-color: #FFEB3B;
+			color: #333;
+		}
+
+		@keyframes spin {
+			0% { transform: rotate(0deg); }
+			100% { transform: rotate(360deg); }
+		}
+
+		#loading-indicator {
+			width: 50px;
+			height: 50px; /* Match the height of the button */
+			border: 16px solid #f3f3f3;
+			border-top: 16px solid #3498db;
+			border-radius: 50%;
+			animation: spin 2s linear infinite;
+			display: none;
+		}
+
+		/* Dark mode styles */
+		@media (prefers-color-scheme: dark) {
+			body {
+				background-color: #333;
+				color: #f1f1f1;  /* this will apply to all text unless otherwise specified */
+			}
+			.container {
+				background-color: #444;
+				color: #f1f1f1;
+			}
+			.server-item {
+				background-color: #555;
+			}
+			h1, .server-name {
+				color: #fff;
+			}
+			button {
+				border-color: #fff; /* If you want the button border to be visible in dark mode */
+			}
+			#loading-indicator {
+				border: 16px solid #444;
+				border-top: 16px solid #bbb;
+			}
+		}
+	</style>
+</head>
+<body>
+	<div class="container">
+		<h1>{{ .Title }}</h1>
+		<div class="action-container">
+			<button onclick="toggleServer()">{{.ActionText}}</button>
+			<div id="loading-indicator"></div>
+		</div>
+		<div class="server-list">
+			{{range .Servers}}
+				<div class="server-item">
+					<div class="server-name">{{.Name}}</div>
+					<div class="server-status {{.Status}}">
+						{{.Status}}
+					</div>
+				</div>
+			{{end}}
+		</div>
+	</div>
+</body>
+{{if eq .ActionText "Pending"}}
+<script>
+	showLoadingIndicator();
+	setTimeout(() => location.reload(), 4000); // Retry after 3 seconds if status is still "pending"
+
+	function showLoadingIndicator() {
+		const loadingIndicator = document.getElementById("loading-indicator");
+		loadingIndicator.style.display = "inline-block"; // this line shows the loading indicator
+	}
+</script>
+{{else}}
+<script>
+	async function fetchFromServer(url, method = 'GET', body = null) {
+		const response = await fetch(url, { method, body });
+		if (!response.ok) throw new Error('Network response was not ok');
+		return await response.text();
+	}
+
+	async function toggleServer() {
+		await fetchFromServer("/toggle", "POST");
+		location.reload();
+	}
+</script>
+{{end}}
+</html>
