@@ -82,6 +82,10 @@ The application provides the following endpoints:
 - `GET /favicon.ico`: Endpoint for serving favicon.
 - `POST /toggle`: Endpoint for toggling the start/stop state of all instances.
 
+## To Do
+
+- [ ] Add error handling for AWS API calls.
+
 ## License
 
 River Guide is released under the MIT License. See the [LICENSE](./LICENSE) 
