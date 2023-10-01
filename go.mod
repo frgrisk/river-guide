@@ -5,7 +5,7 @@ go 1.20
 require (
 	github.com/aws/aws-sdk-go-v2 v1.21.0
 	github.com/aws/aws-sdk-go-v2/config v1.18.42
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.115.0
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.122.0
 	github.com/aws/smithy-go v1.14.2
 	github.com/gorilla/mux v1.8.0
 	github.com/sirupsen/logrus v1.9.3
