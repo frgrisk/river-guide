@@ -3,7 +3,7 @@ module github.com/frgrisk/river-guide
 go 1.20
 
 require (
-	github.com/aws/aws-sdk-go-v2 v1.24.0
+	github.com/aws/aws-sdk-go-v2 v1.24.1
 	github.com/aws/aws-sdk-go-v2/config v1.26.2
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.142.0
 	github.com/aws/smithy-go v1.19.0
