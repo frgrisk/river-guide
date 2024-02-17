@@ -34,6 +34,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -48,6 +49,12 @@ import (
 )
 
 var cfgFile string
+
+const (
+	defaultPort = 3000
+
+	defaultReadHeaderTimeout = 3 * time.Second
+)
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -76,12 +83,13 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.river-guide.yaml)")
 
-	rootCmd.Flags().IntP("port", "p", 3000, "port to listen on")
+	rootCmd.Flags().IntP("port", "p", defaultPort, "port to listen on")
 	rootCmd.Flags().String("path-prefix", "/", "prefix to serve the web interface on")
 	rootCmd.Flags().StringToStringP("tags", "t", map[string]string{}, "filter instance using tag key-value pairs (e.g. Environment=dev,Name=dev.example.com)")
 	rootCmd.Flags().String("title", "Environment Control", "title to display on the web page")
 	rootCmd.Flags().String("primary-color", "#333", "primary color for text")
 	rootCmd.Flags().String("favicon", "", "path to favicon")
+	rootCmd.Flags().Duration("read-header-timeout", defaultReadHeaderTimeout, "timeout for reading the request headers")
 
 	err := viper.BindPFlags(rootCmd.Flags())
 	if err != nil {
@@ -129,14 +137,14 @@ type ServerBank struct {
 
 // APIHandler handles the API endpoints.
 type APIHandler struct {
-	mu  sync.Mutex
 	svc *ec2.Client
+	mu  sync.Mutex
 }
 
 // GetServerBank queries AWS EC2 instances based on the specified tags.
 func (h *APIHandler) GetServerBank(tags map[string]string) (*ServerBank, error) {
 	// Build the filter for tag-based instance query
-	var filters []types.Filter
+	filters := make([]types.Filter, 0, len(tags)+1)
 	for key, value := range tags {
 		filters = append(filters, types.Filter{
 			Name:   aws.String(fmt.Sprintf("tag:%s", key)),
@@ -290,9 +298,9 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, _ *http.Request) {
 	type TemplateData struct {
 		Title        string
 		ActionText   string
-		Servers      []*Server
 		PrimaryColor string
 		TogglePath   string
+		Servers      []*Server
 	}
 
 	data := TemplateData{
@@ -313,6 +321,7 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, _ *http.Request) {
 	err = tmpl.Execute(w, data)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 }
 
@@ -387,7 +396,13 @@ func serve() {
 	n := negroni.Classic() // Includes some default middlewares
 	n.UseHandler(rp)
 
+	server := &http.Server{
+		Addr:              ":" + strconv.Itoa(viper.GetInt("port")),
+		Handler:           n,
+		ReadHeaderTimeout: viper.GetDuration("read-header-timeout"),
+	}
+
 	// Start the HTTP server
 	log.Infof("Server running on http://localhost:%v%v", viper.GetInt("port"), viper.GetString("path-prefix"))
-	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(viper.GetInt("port")), n))
+	log.Fatal(server.ListenAndServe())
 }
