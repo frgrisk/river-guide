@@ -53,7 +53,7 @@ var cfgFile string
 var rootCmd = &cobra.Command{
 	Use:   "river-guide",
 	Short: "River Guide is a simple web interface for managing AWS EC2 instances.",
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(_ *cobra.Command, _ []string) {
 		serve()
 	},
 }
@@ -278,7 +278,7 @@ func (h *APIHandler) PowerOffAll(sb *ServerBank) error {
 var indexTemplate string
 
 // IndexHandler handles the index page.
-func (h *APIHandler) IndexHandler(w http.ResponseWriter, r *http.Request) {
+func (h *APIHandler) IndexHandler(w http.ResponseWriter, _ *http.Request) {
 	tmpl := template.Must(template.New("index").Parse(indexTemplate))
 
 	sb, err := h.GetServerBank(viper.GetStringMapString("tags"))
@@ -317,7 +317,7 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // ToggleHandler handles the start/stop button toggle.
-func (h *APIHandler) ToggleHandler(w http.ResponseWriter, r *http.Request) {
+func (h *APIHandler) ToggleHandler(w http.ResponseWriter, _ *http.Request) {
 	sb, err := h.GetServerBank(viper.GetStringMapString("tags"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -348,7 +348,10 @@ var favicon []byte
 
 func FaviconHandler(w http.ResponseWriter, r *http.Request) {
 	if viper.GetString("favicon") == "" {
-		w.Write(favicon)
+		_, err := w.Write(favicon)
+		if err != nil {
+			panic(err)
+		}
 		w.WriteHeader(http.StatusOK)
 		return
 	}
