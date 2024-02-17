@@ -1,0 +1,31 @@
+linters:
+  enable:
+    - asciicheck
+    - gocritic
+    - gofmt
+    - gofumpt
+    - gosec
+    - misspell
+    - revive
+    - staticcheck
+    - tenv
+    - unconvert
+    - gomnd
+    - prealloc
+    - goconst
+
+linters-settings:
+  govet:
+    enable-all: true
+    disable:
+      - shadow
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+      - experimental
+      - opinionated
+    disabled-checks:
+      - paramTypeCombine
+      - rangeValCopy
