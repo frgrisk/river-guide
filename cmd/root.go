@@ -226,7 +226,6 @@ func (h *APIHandler) PowerOnAll(sb *ServerBank) error {
 		DryRun:      aws.Bool(true),
 	}
 	_, err := h.svc.StartInstances(context.TODO(), input)
-
 	// If the error code is `DryRunOperation` it means we have the necessary
 	// permissions to Start this instance
 	if err != nil {
@@ -260,7 +259,6 @@ func (h *APIHandler) PowerOffAll(sb *ServerBank) error {
 		DryRun:      aws.Bool(true),
 	}
 	_, err := h.svc.StopInstances(context.TODO(), input)
-
 	// If the error code is `DryRunOperation` it means we have the necessary
 	// permissions to Stop this instance
 	if err != nil {
