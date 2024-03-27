@@ -22,10 +22,8 @@ THE SOFTWARE.
 package cmd
 
 import (
-	"bytes"
 	"context"
 	_ "embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -52,7 +50,11 @@ import (
 	"github.com/urfave/negroni/v3"
 )
 
-var cfgFile string
+var (
+	cfgFile           string
+	resourceBlockName string
+	subscriptionID    string
+)
 
 const (
 	defaultPort = 3000
@@ -95,6 +97,9 @@ func init() {
 	rootCmd.Flags().String("favicon", "", "path to favicon")
 	rootCmd.Flags().Duration("read-header-timeout", defaultReadHeaderTimeout, "timeout for reading the request headers")
 	rootCmd.Flags().String("provider", "aws", "cloud provider (aws or azure)")
+	rootCmd.Flags().StringVar(&resourceBlockName, "resource-block-name", "FRGAPAC", "default resource block name")
+	rootCmd.Flags().StringVar(&subscriptionID, "subscription-id", "", "Azure subscription ID (default is none)")
+
 	err := viper.BindPFlags(rootCmd.Flags())
 	if err != nil {
 		log.Fatal(err)
@@ -177,33 +182,6 @@ type ServerBank struct {
 type APIHandler struct {
 	provider CloudProvider
 	mu       sync.Mutex
-}
-
-func getSubscriptionID() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-
-	profilePath := filepath.Join(home, ".azure", "azureProfile.json")
-	file, err := os.ReadFile(profilePath)
-	if err != nil {
-		return "", err
-	}
-	file = bytes.TrimPrefix(file, []byte("\xef\xbb\xbf"))
-	var profile AzureProfile
-	err = json.Unmarshal(file, &profile)
-	if err != nil {
-		return "", err
-	}
-
-	for _, subscription := range profile.Subscriptions {
-		if subscription.IsDefault {
-			return subscription.ID, nil
-		}
-	}
-
-	return "", errors.New("no default subscription found")
 }
 
 // get Server bank based on providers
@@ -306,7 +284,7 @@ func (a *AzureProvider) GetServerBank(tags map[string]string) (*ServerBank, erro
 
 			if match {
 				// Get the instance view for the VM to access its status
-				instanceView, err := a.vmClient.InstanceView(ctx, "FRGAPAC", *vm.Name, nil)
+				instanceView, err := a.vmClient.InstanceView(ctx, resourceBlockName, *vm.Name, nil)
 				if err != nil {
 					fmt.Errorf("failed to get instance view: %v", err)
 					continue
@@ -434,7 +412,7 @@ func (a *AzureProvider) PowerOnAll(sb *ServerBank) error {
 
 	for _, server := range sb.Servers {
 		if server.Status == string(types.InstanceStateNameStopped) { // Check the exact stopped state code for Azure
-			_, err := a.vmClient.BeginStart(ctx, "FRGAPAC", server.Name, nil)
+			_, err := a.vmClient.BeginStart(ctx, resourceBlockName, server.Name, nil)
 			if err != nil {
 				return fmt.Errorf("failed to start VM %s: %v", server.Name, err)
 			}
@@ -450,7 +428,7 @@ func (a *AzureProvider) PowerOffAll(sb *ServerBank) error {
 
 	for _, server := range sb.Servers {
 		if server.Status == string(types.InstanceStateNameRunning) { // Check the exact running state code for Azure
-			_, err := a.vmClient.BeginDeallocate(ctx, "FRGAPAC", server.Name, nil)
+			_, err := a.vmClient.BeginDeallocate(ctx, resourceBlockName, server.Name, nil)
 			if err != nil {
 				return fmt.Errorf("failed to stop VM %s: %v", server.Name, err)
 			}
@@ -575,10 +553,6 @@ func serve() {
 		}
 		cloudProvider = &AWSProvider{svc: ec2.NewFromConfig(cfg)}
 	case "azure":
-		subscriptionID, err := getSubscriptionID()
-		if err != nil {
-			log.Fatalf("Failed to obtain subscription ID, %v", err)
-		}
 		client, err := getVMClient(subscriptionID)
 		if err != nil {
 			log.Fatalf("Failed to create VM client: %v", err)
