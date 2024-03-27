@@ -286,8 +286,7 @@ func (a *AzureProvider) GetServerBank(tags map[string]string) (*ServerBank, erro
 				// Get the instance view for the VM to access its status
 				instanceView, err := a.vmClient.InstanceView(ctx, resourceGroupName, *vm.Name, nil)
 				if err != nil {
-					fmt.Errorf("failed to get instance view: %v", err)
-					continue
+					return nil, fmt.Errorf("failed to get instance view: %v", err)
 				}
 
 				var status string
@@ -346,7 +345,6 @@ func normalizeStatus(azureStatus string) string {
 
 // PowerOnAll powers on all the servers in the bank and updates their statuses.
 func (h *AWSProvider) PowerOnAll(sb *ServerBank) error {
-
 	var instanceIDs []string
 	for _, server := range sb.Servers {
 		if server.Status == string(types.InstanceStateNameStopped) {
@@ -377,7 +375,6 @@ func (h *AWSProvider) PowerOnAll(sb *ServerBank) error {
 
 // PowerOffAll powers off all the servers in the bank and updates their statuses.
 func (h *AWSProvider) PowerOffAll(sb *ServerBank) error {
-
 	var instanceIDs []string
 	for _, server := range sb.Servers {
 		if server.Status == string(types.InstanceStateNameRunning) {
