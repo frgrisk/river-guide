@@ -39,6 +39,10 @@ The application accepts several flags:
 - `--config`: path to configuration file (default is `$HOME/.river-guide.yaml`).
 - `-p, --port`: port to listen on (default is `3000`).
 - `--path-prefix`: path prefix for the application (default is `/`).
+- `--provider`: cloud provider to use (default is `aws`).
+- `--resource-group-name`: name of the resource group to use (required for 
+  Azure).
+- `--subscription-id`: subscription ID to use (required for Azure).
 - `-t, --tags`: filter instances using tag key-value pairs (e.g.,
   `Environment=dev,Name=dev.example.com`).
 - `--title`: title to display on the web page (default is "Environment
