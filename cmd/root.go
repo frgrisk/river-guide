@@ -22,8 +22,10 @@ THE SOFTWARE.
 package cmd
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -36,6 +38,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -90,7 +94,7 @@ func init() {
 	rootCmd.Flags().String("primary-color", "#333", "primary color for text")
 	rootCmd.Flags().String("favicon", "", "path to favicon")
 	rootCmd.Flags().Duration("read-header-timeout", defaultReadHeaderTimeout, "timeout for reading the request headers")
-
+	rootCmd.Flags().String("provider", "aws", "cloud provider (aws or azure)")
 	err := viper.BindPFlags(rootCmd.Flags())
 	if err != nil {
 		log.Fatal(err)
@@ -123,11 +127,45 @@ func initConfig() {
 	}
 }
 
-// Server represents an AWS server.
+type AzureProfile struct {
+	Subscriptions []struct {
+		ID        string `json:"id"`
+		IsDefault bool   `json:"isDefault"`
+	} `json:"subscriptions"`
+}
+
+// CloudProvider defines common operations for cloud providers
+type CloudProvider interface {
+	GetServerBank(tags map[string]string) (*ServerBank, error)
+	PowerOnAll(*ServerBank) error
+	PowerOffAll(*ServerBank) error
+	GetStatus() string
+}
+
+type AWSProvider struct {
+	svc *ec2.Client
+}
+
+// GetStatus implements CloudProvider.
+func (h *AWSProvider) GetStatus() string {
+	panic("unimplemented")
+}
+
+// AzureProvider implements CloudProvider for Azure VM
+type AzureProvider struct {
+	vmClient *armcompute.VirtualMachinesClient
+}
+
+// GetStatus implements CloudProvider.
+func (a *AzureProvider) GetStatus() string {
+	panic("unimplemented")
+}
+
+// Server represents an AWS EC2 or Azure VM server.
 type Server struct {
 	Name   string
 	ID     *string
-	Status types.InstanceStateName
+	Status string
 }
 
 // ServerBank represents a bank of AWS servers.
@@ -137,12 +175,58 @@ type ServerBank struct {
 
 // APIHandler handles the API endpoints.
 type APIHandler struct {
-	svc *ec2.Client
-	mu  sync.Mutex
+	provider CloudProvider
+	mu       sync.Mutex
+}
+
+func getSubscriptionID() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+
+	profilePath := filepath.Join(home, ".azure", "azureProfile.json")
+	file, err := os.ReadFile(profilePath)
+	if err != nil {
+		return "", err
+	}
+	file = bytes.TrimPrefix(file, []byte("\xef\xbb\xbf"))
+	var profile AzureProfile
+	err = json.Unmarshal(file, &profile)
+	if err != nil {
+		return "", err
+	}
+
+	for _, subscription := range profile.Subscriptions {
+		if subscription.IsDefault {
+			return subscription.ID, nil
+		}
+	}
+
+	return "", errors.New("no default subscription found")
+}
+
+// get Server bank based on providers
+func (h *APIHandler) GetServerBank(tags map[string]string) (*ServerBank, error) {
+	return h.provider.GetServerBank(tags)
+}
+
+// Power on All based on providers
+func (h *APIHandler) PowerOnAll(sb *ServerBank) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.provider.PowerOnAll(sb)
+}
+
+func (h *APIHandler) PowerOffAll(sb *ServerBank) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.provider.PowerOffAll(sb)
 }
 
 // GetServerBank queries AWS EC2 instances based on the specified tags.
-func (h *APIHandler) GetServerBank(tags map[string]string) (*ServerBank, error) {
+func (h *AWSProvider) GetServerBank(tags map[string]string) (*ServerBank, error) {
+	// if provider is aws then do this if not do that if h.handler is azure then do azure
 	// Build the filter for tag-based instance query
 	filters := make([]types.Filter, 0, len(tags)+1)
 	for key, value := range tags {
@@ -178,7 +262,7 @@ func (h *APIHandler) GetServerBank(tags map[string]string) (*ServerBank, error) 
 		for _, instance := range reservation.Instances {
 			server := &Server{
 				ID:     instance.InstanceId,
-				Status: instance.State.Name,
+				Status: string(instance.State.Name),
 			}
 			for _, tag := range instance.Tags {
 				if *tag.Key == "Name" {
@@ -198,32 +282,96 @@ func (h *APIHandler) GetServerBank(tags map[string]string) (*ServerBank, error) 
 	return serverBank, nil
 }
 
+// GetServerBank queries Azure VM instances based on the specified tags.
+func (a *AzureProvider) GetServerBank(tags map[string]string) (*ServerBank, error) {
+	ctx := context.TODO()
+	pager := a.vmClient.NewListAllPager(nil)
+	serverBank := &ServerBank{}
+
+	for pager.More() {
+		result, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get VM instances: %v", err)
+		}
+
+		// manual filter by tag
+		for _, vm := range result.Value {
+			match := true
+			for key, value := range tags {
+				if vmValue, ok := vm.Tags[key]; !ok || *vmValue != value {
+					match = false
+					break
+				}
+			}
+
+			if match {
+				// Get the instance view for the VM to access its status
+				instanceView, err := a.vmClient.InstanceView(ctx, "FRGAPAC", *vm.Name, nil)
+				if err != nil {
+					fmt.Errorf("failed to get instance view: %v", err)
+					continue
+				}
+
+				var status string
+				for _, s := range instanceView.Statuses {
+					if s.Code != nil {
+						status = normalizeStatus(*s.Code)
+					}
+				}
+
+				server := &Server{
+					ID:     vm.ID,
+					Name:   *vm.Name,
+					Status: status,
+				}
+				serverBank.Servers = append(serverBank.Servers, server)
+			}
+		}
+	}
+
+	// Sort servers by name
+	sort.Slice(serverBank.Servers, func(i, j int) bool {
+		return serverBank.Servers[i].Name < serverBank.Servers[j].Name
+	})
+
+	return serverBank, nil
+}
+
 // GetStatus returns the overall status of the server bank.
-func (sb *ServerBank) GetStatus() types.InstanceStateName {
+func (sb *ServerBank) GetStatus() string {
 	runningCount := 0
 	for _, server := range sb.Servers {
-		if server.Status == types.InstanceStateNameRunning {
+		if server.Status == string(types.InstanceStateNameRunning) {
 			runningCount++
-		} else if server.Status == types.InstanceStateNameStopping || server.Status == types.InstanceStateNamePending {
-			return types.InstanceStateNamePending
+		} else if server.Status == string(types.InstanceStateNameStopping) || server.Status == string(types.InstanceStateNamePending) {
+			return string(types.InstanceStateNamePending)
 		}
 	}
 
 	if runningCount == len(sb.Servers) {
-		return types.InstanceStateNameRunning
+		return string(types.InstanceStateNameRunning)
 	}
 
-	return types.InstanceStateNameStopped
+	return string(types.InstanceStateNameStopped)
+}
+
+func normalizeStatus(azureStatus string) string {
+	switch azureStatus {
+	case "PowerState/running":
+		return "running" // Similar to AWS 'running'
+	case "PowerState/stopped", "PowerState/deallocated":
+		return "stopped" // Similar to AWS 'stopped'
+	default:
+		return "pending" // A generic catch-all similar to AWS 'pending' or 'stopping'
+	}
 }
 
 // PowerOnAll powers on all the servers in the bank and updates their statuses.
-func (h *APIHandler) PowerOnAll(sb *ServerBank) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
+func (h *AWSProvider) PowerOnAll(sb *ServerBank) error {
 
 	var instanceIDs []string
 	for _, server := range sb.Servers {
-		if server.Status == types.InstanceStateNameStopped {
+		if server.Status == string(types.InstanceStateNameStopped) {
 			instanceIDs = append(instanceIDs, *server.ID)
 		}
 	}
@@ -250,13 +398,11 @@ func (h *APIHandler) PowerOnAll(sb *ServerBank) error {
 }
 
 // PowerOffAll powers off all the servers in the bank and updates their statuses.
-func (h *APIHandler) PowerOffAll(sb *ServerBank) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
+func (h *AWSProvider) PowerOffAll(sb *ServerBank) error {
 
 	var instanceIDs []string
 	for _, server := range sb.Servers {
-		if server.Status == types.InstanceStateNameRunning {
+		if server.Status == string(types.InstanceStateNameRunning) {
 			instanceIDs = append(instanceIDs, *server.ID)
 		}
 	}
@@ -282,13 +428,44 @@ func (h *APIHandler) PowerOffAll(sb *ServerBank) error {
 	return err
 }
 
+// PowerOnAll powers on all the servers in the bank and updates their statuses.
+func (a *AzureProvider) PowerOnAll(sb *ServerBank) error {
+	ctx := context.TODO()
+
+	for _, server := range sb.Servers {
+		if server.Status == string(types.InstanceStateNameStopped) { // Check the exact stopped state code for Azure
+			_, err := a.vmClient.BeginStart(ctx, "FRGAPAC", server.Name, nil)
+			if err != nil {
+				return fmt.Errorf("failed to start VM %s: %v", server.Name, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// PowerOffAll powers off all the servers in the bank and updates their statuses.
+func (a *AzureProvider) PowerOffAll(sb *ServerBank) error {
+	ctx := context.TODO()
+
+	for _, server := range sb.Servers {
+		if server.Status == string(types.InstanceStateNameRunning) { // Check the exact running state code for Azure
+			_, err := a.vmClient.BeginDeallocate(ctx, "FRGAPAC", server.Name, nil)
+			if err != nil {
+				return fmt.Errorf("failed to stop VM %s: %v", server.Name, err)
+			}
+		}
+	}
+
+	return nil
+}
+
 //go:embed assets/index.gohtml
 var indexTemplate string
 
 // IndexHandler handles the index page.
 func (h *APIHandler) IndexHandler(w http.ResponseWriter, _ *http.Request) {
 	tmpl := template.Must(template.New("index").Parse(indexTemplate))
-
 	sb, err := h.GetServerBank(viper.GetStringMapString("tags"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -310,11 +487,10 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, _ *http.Request) {
 		PrimaryColor: viper.GetString("primary-color"),
 		TogglePath:   filepath.Join(viper.GetString("path-prefix"), "toggle"),
 	}
-
 	status := sb.GetStatus()
-	if status == types.InstanceStateNameRunning {
+	if status == string(types.InstanceStateNameRunning) {
 		data.ActionText = "Stop"
-	} else if status == types.InstanceStateNameStopped {
+	} else if status == string(types.InstanceStateNameStopped) {
 		data.ActionText = "Start"
 	}
 
@@ -333,8 +509,7 @@ func (h *APIHandler) ToggleHandler(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	status := sb.GetStatus()
-
-	if status == types.InstanceStateNameRunning {
+	if status == string(types.InstanceStateNameRunning) {
 		err = h.PowerOffAll(sb)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -367,22 +542,57 @@ func FaviconHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, viper.GetString("favicon"))
 }
 
+func getVMClient(subscriptionID string) (*armcompute.VirtualMachinesClient, error) {
+	cred, err := azidentity.NewDefaultAzureCredential(nil)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := armcompute.NewVirtualMachinesClient(subscriptionID, cred, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return client, nil
+}
+
 func serve() {
 	log.SetFormatter(&log.TextFormatter{
 		FullTimestamp: true,
 	})
 
-	// Create an AWS session
-	cfg, err := config.LoadDefaultConfig(
-		context.TODO(),
-	)
-	if err != nil {
-		log.Fatal(err)
+	provider := viper.GetString("provider")
+
+	var cloudProvider CloudProvider
+	switch provider {
+	case "aws":
+		// Create an AWS session
+		cfg, err := config.LoadDefaultConfig(
+			context.TODO(),
+		)
+		if err != nil {
+			log.Fatal(err)
+		}
+		cloudProvider = &AWSProvider{svc: ec2.NewFromConfig(cfg)}
+	case "azure":
+		subscriptionID, err := getSubscriptionID()
+		if err != nil {
+			log.Fatalf("Failed to obtain subscription ID, %v", err)
+		}
+		client, err := getVMClient(subscriptionID)
+		if err != nil {
+			log.Fatalf("Failed to create VM client: %v", err)
+		}
+		// Create provider
+		cloudProvider = &AzureProvider{
+			vmClient: client,
+		}
+
+	default:
+		log.Fatalf("Error initialising provider client: %s", provider)
 	}
 
-	// Create API handler with the server bank
-	apiHandler := &APIHandler{svc: ec2.NewFromConfig(cfg)}
-
+	apiHandler := &APIHandler{provider: cloudProvider}
 	// Create a new router
 	r := mux.NewRouter()
 	rp := r.PathPrefix(viper.GetString("path-prefix")).Subrouter()
