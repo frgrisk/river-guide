@@ -52,7 +52,7 @@ import (
 
 var (
 	cfgFile           string
-	resourceBlockName string
+	resourceGroupName string
 	subscriptionID    string
 )
 
@@ -97,8 +97,8 @@ func init() {
 	rootCmd.Flags().String("favicon", "", "path to favicon")
 	rootCmd.Flags().Duration("read-header-timeout", defaultReadHeaderTimeout, "timeout for reading the request headers")
 	rootCmd.Flags().String("provider", "aws", "cloud provider (aws or azure)")
-	rootCmd.Flags().StringVar(&resourceBlockName, "resource-block-name", "FRGAPAC", "default resource block name")
-	rootCmd.Flags().StringVar(&subscriptionID, "subscription-id", "", "Azure subscription ID (default is none)")
+	rootCmd.Flags().String("resource-group-name", "", "default resource group name (valid only for Azure)")
+	rootCmd.Flags().String("subscription-id", "", "subscription ID (valid only for Azure)")
 
 	err := viper.BindPFlags(rootCmd.Flags())
 	if err != nil {
@@ -184,12 +184,12 @@ type APIHandler struct {
 	mu       sync.Mutex
 }
 
-// get Server bank based on providers
+// GetServerBank based on providers
 func (h *APIHandler) GetServerBank(tags map[string]string) (*ServerBank, error) {
 	return h.provider.GetServerBank(tags)
 }
 
-// Power on All based on providers
+// PowerOnAll based on providers
 func (h *APIHandler) PowerOnAll(sb *ServerBank) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -284,7 +284,7 @@ func (a *AzureProvider) GetServerBank(tags map[string]string) (*ServerBank, erro
 
 			if match {
 				// Get the instance view for the VM to access its status
-				instanceView, err := a.vmClient.InstanceView(ctx, resourceBlockName, *vm.Name, nil)
+				instanceView, err := a.vmClient.InstanceView(ctx, resourceGroupName, *vm.Name, nil)
 				if err != nil {
 					fmt.Errorf("failed to get instance view: %v", err)
 					continue
@@ -412,7 +412,7 @@ func (a *AzureProvider) PowerOnAll(sb *ServerBank) error {
 
 	for _, server := range sb.Servers {
 		if server.Status == string(types.InstanceStateNameStopped) { // Check the exact stopped state code for Azure
-			_, err := a.vmClient.BeginStart(ctx, resourceBlockName, server.Name, nil)
+			_, err := a.vmClient.BeginStart(ctx, resourceGroupName, server.Name, nil)
 			if err != nil {
 				return fmt.Errorf("failed to start VM %s: %v", server.Name, err)
 			}
@@ -428,7 +428,7 @@ func (a *AzureProvider) PowerOffAll(sb *ServerBank) error {
 
 	for _, server := range sb.Servers {
 		if server.Status == string(types.InstanceStateNameRunning) { // Check the exact running state code for Azure
-			_, err := a.vmClient.BeginDeallocate(ctx, resourceBlockName, server.Name, nil)
+			_, err := a.vmClient.BeginDeallocate(ctx, resourceGroupName, server.Name, nil)
 			if err != nil {
 				return fmt.Errorf("failed to stop VM %s: %v", server.Name, err)
 			}
@@ -542,7 +542,7 @@ func serve() {
 	provider := viper.GetString("provider")
 
 	var cloudProvider CloudProvider
-	switch provider {
+	switch strings.ToLower(provider) {
 	case "aws":
 		// Create an AWS session
 		cfg, err := config.LoadDefaultConfig(
@@ -553,6 +553,14 @@ func serve() {
 		}
 		cloudProvider = &AWSProvider{svc: ec2.NewFromConfig(cfg)}
 	case "azure":
+		subscriptionID = viper.GetString("subscription-id")
+		if subscriptionID == "" {
+			log.Fatal("Azure subscription ID is required when using Azure provider.")
+		}
+		resourceGroupName = viper.GetString("resource-group-name")
+		if resourceGroupName == "" {
+			log.Fatal("Azure resource group name is required when using Azure provider.")
+		}
 		client, err := getVMClient(subscriptionID)
 		if err != nil {
 			log.Fatalf("Failed to create VM client: %v", err)
