@@ -34,6 +34,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -49,11 +50,17 @@ import (
 
 var cfgFile string
 
+const (
+	defaultPort = 3000
+
+	defaultReadHeaderTimeout = 3 * time.Second
+)
+
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "river-guide",
 	Short: "River Guide is a simple web interface for managing AWS EC2 instances.",
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(_ *cobra.Command, _ []string) {
 		serve()
 	},
 }
@@ -76,12 +83,13 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.river-guide.yaml)")
 
-	rootCmd.Flags().IntP("port", "p", 3000, "port to listen on")
+	rootCmd.Flags().IntP("port", "p", defaultPort, "port to listen on")
 	rootCmd.Flags().String("path-prefix", "/", "prefix to serve the web interface on")
 	rootCmd.Flags().StringToStringP("tags", "t", map[string]string{}, "filter instance using tag key-value pairs (e.g. Environment=dev,Name=dev.example.com)")
 	rootCmd.Flags().String("title", "Environment Control", "title to display on the web page")
 	rootCmd.Flags().String("primary-color", "#333", "primary color for text")
 	rootCmd.Flags().String("favicon", "", "path to favicon")
+	rootCmd.Flags().Duration("read-header-timeout", defaultReadHeaderTimeout, "timeout for reading the request headers")
 
 	err := viper.BindPFlags(rootCmd.Flags())
 	if err != nil {
@@ -129,14 +137,14 @@ type ServerBank struct {
 
 // APIHandler handles the API endpoints.
 type APIHandler struct {
-	mu  sync.Mutex
 	svc *ec2.Client
+	mu  sync.Mutex
 }
 
 // GetServerBank queries AWS EC2 instances based on the specified tags.
 func (h *APIHandler) GetServerBank(tags map[string]string) (*ServerBank, error) {
 	// Build the filter for tag-based instance query
-	var filters []types.Filter
+	filters := make([]types.Filter, 0, len(tags)+1)
 	for key, value := range tags {
 		filters = append(filters, types.Filter{
 			Name:   aws.String(fmt.Sprintf("tag:%s", key)),
@@ -226,7 +234,6 @@ func (h *APIHandler) PowerOnAll(sb *ServerBank) error {
 		DryRun:      aws.Bool(true),
 	}
 	_, err := h.svc.StartInstances(context.TODO(), input)
-
 	// If the error code is `DryRunOperation` it means we have the necessary
 	// permissions to Start this instance
 	if err != nil {
@@ -260,7 +267,6 @@ func (h *APIHandler) PowerOffAll(sb *ServerBank) error {
 		DryRun:      aws.Bool(true),
 	}
 	_, err := h.svc.StopInstances(context.TODO(), input)
-
 	// If the error code is `DryRunOperation` it means we have the necessary
 	// permissions to Stop this instance
 	if err != nil {
@@ -280,7 +286,7 @@ func (h *APIHandler) PowerOffAll(sb *ServerBank) error {
 var indexTemplate string
 
 // IndexHandler handles the index page.
-func (h *APIHandler) IndexHandler(w http.ResponseWriter, r *http.Request) {
+func (h *APIHandler) IndexHandler(w http.ResponseWriter, _ *http.Request) {
 	tmpl := template.Must(template.New("index").Parse(indexTemplate))
 
 	sb, err := h.GetServerBank(viper.GetStringMapString("tags"))
@@ -292,9 +298,9 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, r *http.Request) {
 	type TemplateData struct {
 		Title        string
 		ActionText   string
-		Servers      []*Server
 		PrimaryColor string
 		TogglePath   string
+		Servers      []*Server
 	}
 
 	data := TemplateData{
@@ -315,11 +321,12 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, r *http.Request) {
 	err = tmpl.Execute(w, data)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 }
 
 // ToggleHandler handles the start/stop button toggle.
-func (h *APIHandler) ToggleHandler(w http.ResponseWriter, r *http.Request) {
+func (h *APIHandler) ToggleHandler(w http.ResponseWriter, _ *http.Request) {
 	sb, err := h.GetServerBank(viper.GetStringMapString("tags"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -350,7 +357,10 @@ var favicon []byte
 
 func FaviconHandler(w http.ResponseWriter, r *http.Request) {
 	if viper.GetString("favicon") == "" {
-		w.Write(favicon)
+		_, err := w.Write(favicon)
+		if err != nil {
+			panic(err)
+		}
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -386,7 +396,13 @@ func serve() {
 	n := negroni.Classic() // Includes some default middlewares
 	n.UseHandler(rp)
 
+	server := &http.Server{
+		Addr:              ":" + strconv.Itoa(viper.GetInt("port")),
+		Handler:           n,
+		ReadHeaderTimeout: viper.GetDuration("read-header-timeout"),
+	}
+
 	// Start the HTTP server
 	log.Infof("Server running on http://localhost:%v%v", viper.GetInt("port"), viper.GetString("path-prefix"))
-	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(viper.GetInt("port")), n))
+	log.Fatal(server.ListenAndServe())
 }

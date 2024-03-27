@@ -24,3 +24,5 @@ go.work
 .idea
 
 river-guide
+
+node_modules
