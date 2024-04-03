@@ -19,13 +19,16 @@ To use River-Guide, you'll need to have:
 - The permission to start and stop instances.
 
 ## Installation
+
 You can use the [pre-built binaries](https://github.com/frgrisk/river-guide/releases).
+
 ```bash
 curl -L https://github.com/frgrisk/river-guide/releases/download/v0.2.0/river-guide-linux-amd64 --output /opt/river-guide
 chmod 755 /opt/river-guide
 ```
 
 or you can install it using go
+
 ```bash
 go install github.com/frgrisk/river-guide@latest
 ```
