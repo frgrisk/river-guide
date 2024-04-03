@@ -41,11 +41,11 @@ configured on the machine it's running on. Approaches to authentication
 vary by cloud provider and whether you're temporarily testing
 the application or deploying it in a production environment.
 
-For temporary testing, a common patter is to the AWS CLI or Azure
-CLI to configure your credentials. For AWS, you can simply set the
-`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN`
-variables if you have them or run `aws configure` and
+For temporary testing, a common pattern is to use the AWS CLI or Azure
+CLI to configure your credentials. For AWS, run `aws configure` and
 provide your access key and secret key (see [_Get your AWS access keys_](https://aws.github.io/aws-sdk-go-v2/docs/getting-started/#get-your-aws-access-keys)).
+You can also simply set the `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+and `AWS_SESSION_TOKEN` environment variables in your session if you have them.
 For Azure, you can run `az login` and follow the instructions to authenticate.
 
 For production deployments, you can use [instance profiles](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_switch-role-ec2_instance-profiles.html)
