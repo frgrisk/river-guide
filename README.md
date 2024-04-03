@@ -20,6 +20,22 @@ To use River-Guide, you'll need to have:
 
 ## Installation
 
+You can use the [pre-built binaries](https://github.com/frgrisk/river-guide/releases).
+
+```bash
+
+if [[ $(uname -m) == aarch64 ]]; then
+   GOARCH=arm64
+else
+   GOARCH=amd64
+fi
+curl -LO https://github.com/frgrisk/river-guide/releases/latest/download/river-guide-linux-$GOARCH
+chmod +x river-guide-linux-*
+sudo cp river-guide-linux-* /usr/local/bin/river-guide
+```
+
+or, if you have Go installed, you can install it using go
+
 ```bash
 go install github.com/frgrisk/river-guide@latest
 ```
