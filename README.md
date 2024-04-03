@@ -91,19 +91,21 @@ Start the server with a custom port and title.
 river-guide --port 8080 --title "My Custom Title"
 ```
 
-Query instances in a different region and filter on instances with the tag
-key "Environment" and value "dev".
+Query instances in a different region and filter on instances that have both tag
+key "Environment" and value "dev" and tag key "DashboardManageable" and value
+"true".
 
 ```bash
-AWS_REGION=us-west-2 river-guide --tags "Environment=dev"
+AWS_REGION=us-west-2 river-guide --tags "Environment=dev,DashboardManageable=true"
 ```
 
-Use the Azure cloud provider and filter on instances with the tag key
-"Environment" and value "dev".
+Use the Azure cloud provider and filter on instances that have both tag key
+"Environment" and value "dev" and tag key "DashboardManageable" and value
+"true".
 
 ```bash
 river-guide --provider azure \
-            --tags "Environment=dev" \
+            --tags "Environment=dev,DashboardManageable=true" \
             --resource-group-name "my-resource-group" \
             --subscription-id "00000000-0000-0000-0000-000000000000"
 ```
