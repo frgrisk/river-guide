@@ -55,7 +55,7 @@ use the credentials configured on the machine it's running on.
 
 ### Required Permissions
 
-For AWS, the following [Amazon EC2 permissions](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-policies-for-amazon-ec2.html)
+For AWS, the following [Amazon EC2 permissions](https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_Operations.html)
 are required:
 
 - `ec2:DescribeInstances`
