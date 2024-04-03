@@ -27,7 +27,7 @@ curl -L https://github.com/frgrisk/river-guide/releases/download/v0.2.0/river-gu
 chmod 755 /opt/river-guide
 ```
 
-or you can install it using go
+or, if you have Go installed, you can install using go
 
 ```bash
 go install github.com/frgrisk/river-guide@latest
