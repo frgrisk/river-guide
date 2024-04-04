@@ -51,9 +51,8 @@ import (
 )
 
 var (
-	cfgFile           string
-	resourceGroupName string
-	subscriptionID    string
+	cfgFile        string
+	subscriptionID string
 )
 
 const (
