@@ -275,11 +275,12 @@ func (a *AzureProvider) GetServerBank(tags map[string]string) (*ServerBank, erro
 			return nil, fmt.Errorf("failed to get VM instances: %v", err)
 		}
 
-		// manual filter by tag
 		for _, vm := range result.Value {
-			resourceGroupName := specifiedResourceGroupName
-			if resourceGroupName == "" {
-				resourceGroupName = extractResourceGroupName(*vm.ID) // Extract if not specified
+			// Extract the resource group name from each vm ID
+			resourceGroupName := extractResourceGroupName(*vm.ID)
+			// If a specific resource group is specified, skip unmatched VMs
+			if specifiedResourceGroupName != "" && resourceGroupName != specifiedResourceGroupName {
+				continue
 			}
 			match := true
 			for key, value := range tags {
@@ -468,19 +469,23 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	type TemplateData struct {
-		Title        string
-		ActionText   string
-		PrimaryColor string
-		TogglePath   string
-		Servers      []*Server
+		Title                  string
+		ActionText             string
+		PrimaryColor           string
+		TogglePath             string
+		Provider               string
+		SpecifiedResourceGroup string
+		Servers                []*Server
 	}
 
 	data := TemplateData{
-		Title:        viper.GetString("title"),
-		Servers:      sb.Servers,
-		ActionText:   "Pending",
-		PrimaryColor: viper.GetString("primary-color"),
-		TogglePath:   filepath.Join(viper.GetString("path-prefix"), "toggle"),
+		Title:                  viper.GetString("title"),
+		Servers:                sb.Servers,
+		ActionText:             "Pending",
+		PrimaryColor:           viper.GetString("primary-color"),
+		Provider:               viper.GetString("provider"),
+		SpecifiedResourceGroup: viper.GetString("resource-group-name"),
+		TogglePath:             filepath.Join(viper.GetString("path-prefix"), "toggle"),
 	}
 	status := sb.GetStatus()
 	if status == string(types.InstanceStateNameRunning) {

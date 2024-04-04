@@ -118,7 +118,8 @@ The application accepts several flags:
 - `--path-prefix`: path prefix for the application (default is `/`). This
   can be useful when running the application behind a reverse proxy.
 - `--provider`: cloud provider to use (default is `aws`).
-- `--resource-group-name`: name of the resource group to use for azure (default queried from subscription ID).
+- `--resource-group-name`: optional flag to specify an Azure resource group for VM filtering.
+(default retrieves VMs from all resource groups for the specified subscription)
 - `--subscription-id`: subscription ID to use (required for Azure).
 - `-t, --tags`: filter instances using tag key-value pairs (e.g.,
   `Environment=dev,Name=dev.example.com`).
