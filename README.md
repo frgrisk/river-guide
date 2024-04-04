@@ -99,9 +99,9 @@ key "Environment" and value "dev" and tag key "DashboardManageable" and value
 AWS_REGION=us-west-2 river-guide --tags "Environment=dev,DashboardManageable=true"
 ```
 
-Use the Azure cloud provider and filter on instances that have both tag key
-"Environment" and value "dev" and tag key "DashboardManageable" and value
-"true".
+Use the Azure cloud provider and filter on instances in the "my-resource-group"
+resource group having both tag key "Environment" and value "dev" and tag key
+"DashboardManageable" and value "true".
 
 ```bash
 river-guide --provider azure \
@@ -119,8 +119,8 @@ The application accepts several flags:
 - `--path-prefix`: path prefix for the application (default is `/`). This
   can be useful when running the application behind a reverse proxy.
 - `--provider`: cloud provider to use (default is `aws`).
-- `--resource-group-name`: name of the resource group to use (required for
-  Azure).
+- `--resource-group-name`: filter instances based on their resource group membership
+  (only used with the Azure provider).
 - `--subscription-id`: subscription ID to use (required for Azure).
 - `-t, --tags`: filter instances using tag key-value pairs (e.g.,
   `Environment=dev,Name=dev.example.com`).

@@ -51,9 +51,8 @@ import (
 )
 
 var (
-	cfgFile           string
-	resourceGroupName string
-	subscriptionID    string
+	cfgFile        string
+	subscriptionID string
 )
 
 const (
@@ -97,8 +96,8 @@ func init() {
 	rootCmd.Flags().String("favicon", "", "path to favicon")
 	rootCmd.Flags().Duration("read-header-timeout", defaultReadHeaderTimeout, "timeout for reading the request headers")
 	rootCmd.Flags().String("provider", "aws", "cloud provider (aws or azure)")
-	rootCmd.Flags().String("resource-group-name", "", "default resource group name (valid only for Azure)")
-	rootCmd.Flags().String("subscription-id", "", "subscription ID (valid only for Azure)")
+	rootCmd.Flags().String("resource-group-name", "", "filter instances based on their resource group membership (only used with the Azure provider)")
+	rootCmd.Flags().String("subscription-id", "", "subscription ID (required for Azure)")
 
 	err := viper.BindPFlags(rootCmd.Flags())
 	if err != nil {
@@ -168,9 +167,10 @@ func (a *AzureProvider) GetStatus() string {
 
 // Server represents an AWS EC2 or Azure VM server.
 type Server struct {
-	Name   string
-	ID     *string
-	Status string
+	Name              string
+	ID                *string
+	Status            string
+	ResourceGroupName string
 }
 
 // ServerBank represents a bank of AWS servers.
@@ -263,6 +263,8 @@ func (h *AWSProvider) GetServerBank(tags map[string]string) (*ServerBank, error)
 // GetServerBank queries Azure VM instances based on the specified tags.
 func (a *AzureProvider) GetServerBank(tags map[string]string) (*ServerBank, error) {
 	ctx := context.TODO()
+	specifiedResourceGroupName := viper.GetString("resource-group-name")
+
 	pager := a.vmClient.NewListAllPager(nil)
 	serverBank := &ServerBank{}
 
@@ -272,8 +274,13 @@ func (a *AzureProvider) GetServerBank(tags map[string]string) (*ServerBank, erro
 			return nil, fmt.Errorf("failed to get VM instances: %v", err)
 		}
 
-		// manual filter by tag
 		for _, vm := range result.Value {
+			// Extract the resource group name from each vm ID
+			resourceGroupName := extractResourceGroupName(*vm.ID)
+			// If a specific resource group is specified, skip unmatched VMs
+			if specifiedResourceGroupName != "" && resourceGroupName != specifiedResourceGroupName {
+				continue
+			}
 			match := true
 			for key, value := range tags {
 				if vmValue, ok := vm.Tags[key]; !ok || *vmValue != value {
@@ -289,17 +296,20 @@ func (a *AzureProvider) GetServerBank(tags map[string]string) (*ServerBank, erro
 					return nil, fmt.Errorf("failed to get instance view: %v", err)
 				}
 
-				var status string
+				var powerState string
 				for _, s := range instanceView.Statuses {
-					if s.Code != nil {
-						status = normalizeStatus(*s.Code)
+					if s.Code != nil && strings.HasPrefix(*s.Code, "PowerState/") {
+						powerState = *s.Code
+						break
 					}
 				}
+				status := normalizeStatus(powerState)
 
 				server := &Server{
-					ID:     vm.ID,
-					Name:   *vm.Name,
-					Status: status,
+					ID:                vm.ID,
+					Name:              *vm.Name,
+					Status:            status,
+					ResourceGroupName: resourceGroupName,
 				}
 				serverBank.Servers = append(serverBank.Servers, server)
 			}
@@ -312,6 +322,16 @@ func (a *AzureProvider) GetServerBank(tags map[string]string) (*ServerBank, erro
 	})
 
 	return serverBank, nil
+}
+
+func extractResourceGroupName(vmID string) string {
+	parts := strings.Split(vmID, "/")
+	for i, part := range parts {
+		if part == "resourceGroups" && i+1 < len(parts) {
+			return parts[i+1]
+		}
+	}
+	return ""
 }
 
 // GetStatus returns the overall status of the server bank.
@@ -335,11 +355,11 @@ func (sb *ServerBank) GetStatus() string {
 func normalizeStatus(azureStatus string) string {
 	switch azureStatus {
 	case "PowerState/running":
-		return "running" // Similar to AWS 'running'
+		return string(types.InstanceStateNameRunning)
 	case "PowerState/stopped", "PowerState/deallocated":
-		return "stopped" // Similar to AWS 'stopped'
+		return string(types.InstanceStateNameStopped)
 	default:
-		return "pending" // A generic catch-all similar to AWS 'pending' or 'stopping'
+		return string(types.InstanceStateNamePending)
 	}
 }
 
@@ -408,8 +428,8 @@ func (a *AzureProvider) PowerOnAll(sb *ServerBank) error {
 	ctx := context.TODO()
 
 	for _, server := range sb.Servers {
-		if server.Status == string(types.InstanceStateNameStopped) { // Check the exact stopped state code for Azure
-			_, err := a.vmClient.BeginStart(ctx, resourceGroupName, server.Name, nil)
+		if server.Status == string(types.InstanceStateNameStopped) {
+			_, err := a.vmClient.BeginStart(ctx, server.ResourceGroupName, server.Name, nil)
 			if err != nil {
 				return fmt.Errorf("failed to start VM %s: %v", server.Name, err)
 			}
@@ -424,8 +444,8 @@ func (a *AzureProvider) PowerOffAll(sb *ServerBank) error {
 	ctx := context.TODO()
 
 	for _, server := range sb.Servers {
-		if server.Status == string(types.InstanceStateNameRunning) { // Check the exact running state code for Azure
-			_, err := a.vmClient.BeginDeallocate(ctx, resourceGroupName, server.Name, nil)
+		if server.Status == string(types.InstanceStateNameRunning) {
+			_, err := a.vmClient.BeginDeallocate(ctx, server.ResourceGroupName, server.Name, nil)
 			if err != nil {
 				return fmt.Errorf("failed to stop VM %s: %v", server.Name, err)
 			}
@@ -553,10 +573,6 @@ func serve() {
 		subscriptionID = viper.GetString("subscription-id")
 		if subscriptionID == "" {
 			log.Fatal("Azure subscription ID is required when using Azure provider.")
-		}
-		resourceGroupName = viper.GetString("resource-group-name")
-		if resourceGroupName == "" {
-			log.Fatal("Azure resource group name is required when using Azure provider.")
 		}
 		client, err := getVMClient(subscriptionID)
 		if err != nil {
