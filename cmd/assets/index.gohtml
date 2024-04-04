@@ -19,11 +19,6 @@
 			color: {{ .PrimaryColor }};
 		}
 
-		h3 {
-			text-align: center;
-			color: {{ .PrimaryColor }};
-		}
-
 		.container {
 			max-width: 600px;
 			margin: 0 auto;
@@ -157,7 +152,6 @@
 <body>
 	<div class="container">
 		<h1>{{ .Title }}</h1>
-		<h3> Provider: {{.Provider}} </h3>
 		<div class="action-container">
 			<button onclick="toggleServer()">{{.ActionText}}</button>
 			<div id="loading-indicator"></div>
