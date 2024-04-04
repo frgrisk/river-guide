@@ -106,7 +106,6 @@ Use the Azure cloud provider and filter on instances that have both tag key
 ```bash
 river-guide --provider azure \
             --tags "Environment=dev,DashboardManageable=true" \
-            --resource-group-name "my-resource-group" \
             --subscription-id "00000000-0000-0000-0000-000000000000"
 ```
 
@@ -119,8 +118,7 @@ The application accepts several flags:
 - `--path-prefix`: path prefix for the application (default is `/`). This
   can be useful when running the application behind a reverse proxy.
 - `--provider`: cloud provider to use (default is `aws`).
-- `--resource-group-name`: name of the resource group to use (required for
-  Azure).
+- `--resource-group-name`: name of the resource group to use for azure (default queried from subscription ID).
 - `--subscription-id`: subscription ID to use (required for Azure).
 - `-t, --tags`: filter instances using tag key-value pairs (e.g.,
   `Environment=dev,Name=dev.example.com`).
