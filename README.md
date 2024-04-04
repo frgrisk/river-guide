@@ -99,9 +99,9 @@ key "Environment" and value "dev" and tag key "DashboardManageable" and value
 AWS_REGION=us-west-2 river-guide --tags "Environment=dev,DashboardManageable=true"
 ```
 
-Use the Azure cloud provider and filter on instances that have both tag key
-"Environment" and value "dev" and tag key "DashboardManageable" and value
-"true".
+Use the Azure cloud provider and filter on instances in the "my-resource-group"
+resource group having both tag key "Environment" and value "dev" and tag key
+"DashboardManageable" and value "true".
 
 ```bash
 river-guide --provider azure \
