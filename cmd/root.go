@@ -97,7 +97,7 @@ func init() {
 	rootCmd.Flags().Duration("read-header-timeout", defaultReadHeaderTimeout, "timeout for reading the request headers")
 	rootCmd.Flags().String("provider", "aws", "cloud provider (aws or azure)")
 	rootCmd.Flags().String("resource-group-name", "", "filter instances based on their resource group membership (only used with the Azure provider)")
-	rootCmd.Flags().String("subscription-id", "", "subscription ID (valid only for Azure)")
+	rootCmd.Flags().String("subscription-id", "", "subscription ID (required for Azure)")
 
 	err := viper.BindPFlags(rootCmd.Flags())
 	if err != nil {
