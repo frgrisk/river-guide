@@ -96,7 +96,7 @@ func init() {
 	rootCmd.Flags().String("favicon", "", "path to favicon")
 	rootCmd.Flags().Duration("read-header-timeout", defaultReadHeaderTimeout, "timeout for reading the request headers")
 	rootCmd.Flags().String("provider", "aws", "cloud provider (aws or azure)")
-	rootCmd.Flags().String("resource-group-name", "", "default resource group name (valid only for Azure)")
+	rootCmd.Flags().String("resource-group-name", "", "optional resource group name filter (valid only for Azure)")
 	rootCmd.Flags().String("subscription-id", "", "subscription ID (valid only for Azure)")
 
 	err := viper.BindPFlags(rootCmd.Flags())
@@ -468,23 +468,21 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	type TemplateData struct {
-		Title                  string
-		ActionText             string
-		PrimaryColor           string
-		TogglePath             string
-		Provider               string
-		SpecifiedResourceGroup string
-		Servers                []*Server
+		Title        string
+		ActionText   string
+		PrimaryColor string
+		TogglePath   string
+		Provider     string
+		Servers      []*Server
 	}
 
 	data := TemplateData{
-		Title:                  viper.GetString("title"),
-		Servers:                sb.Servers,
-		ActionText:             "Pending",
-		PrimaryColor:           viper.GetString("primary-color"),
-		Provider:               viper.GetString("provider"),
-		SpecifiedResourceGroup: viper.GetString("resource-group-name"),
-		TogglePath:             filepath.Join(viper.GetString("path-prefix"), "toggle"),
+		Title:        viper.GetString("title"),
+		Servers:      sb.Servers,
+		ActionText:   "Pending",
+		PrimaryColor: viper.GetString("primary-color"),
+		Provider:     viper.GetString("provider"),
+		TogglePath:   filepath.Join(viper.GetString("path-prefix"), "toggle"),
 	}
 	status := sb.GetStatus()
 	if status == string(types.InstanceStateNameRunning) {
