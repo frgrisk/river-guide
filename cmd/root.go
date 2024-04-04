@@ -472,7 +472,6 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, _ *http.Request) {
 		ActionText   string
 		PrimaryColor string
 		TogglePath   string
-		Provider     string
 		Servers      []*Server
 	}
 
@@ -481,7 +480,6 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, _ *http.Request) {
 		Servers:      sb.Servers,
 		ActionText:   "Pending",
 		PrimaryColor: viper.GetString("primary-color"),
-		Provider:     viper.GetString("provider"),
 		TogglePath:   filepath.Join(viper.GetString("path-prefix"), "toggle"),
 	}
 	status := sb.GetStatus()
