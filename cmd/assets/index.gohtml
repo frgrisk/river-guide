@@ -19,6 +19,11 @@
 			color: {{ .PrimaryColor }};
 		}
 
+		h3 {
+			text-align: center;
+			color: {{ .PrimaryColor }};
+		}
+
 		.container {
 			max-width: 600px;
 			margin: 0 auto;
@@ -152,6 +157,10 @@
 <body>
 	<div class="container">
 		<h1>{{ .Title }}</h1>
+		<h3> Provider: {{.Provider}} </h3>
+		{{if and (eq .Provider "azure") .SpecifiedResourceGroup}}
+			<h3>Specified Resource Group: {{.SpecifiedResourceGroup}}</h3>
+		{{end}}
 		<div class="action-container">
 			<button onclick="toggleServer()">{{.ActionText}}</button>
 			<div id="loading-indicator"></div>
