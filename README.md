@@ -106,6 +106,7 @@ Use the Azure cloud provider and filter on instances that have both tag key
 ```bash
 river-guide --provider azure \
             --tags "Environment=dev,DashboardManageable=true" \
+            --resource-group-name "my-resource-group" \
             --subscription-id "00000000-0000-0000-0000-000000000000"
 ```
 
