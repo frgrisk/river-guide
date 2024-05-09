@@ -182,13 +182,24 @@
 <script>
 	async function fetchFromServer(url, method = 'GET', body = null) {
 		const response = await fetch(url, { method, body });
-		if (!response.ok) throw new Error('Network response was not ok');
+		if (!response.ok) {
+			// Parse the response body as text
+			const errorText = await response.text();
+			throw new Error(errorText || 'Network response was not ok');
+		}
 		return await response.text();
 	}
 
 	async function toggleServer() {
+	  try {
 		await fetchFromServer("{{ .TogglePath }}", "POST");
 		location.reload();
+	  } catch (error) {
+		// Display the error message to the user in some way
+		alert(error.message);
+		// Refresh the page after the alert is acknowledged
+		location.reload();
+	  }
 	}
 </script>
 {{end}}
