@@ -37,7 +37,7 @@ jobs:
           cache: false
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v5
+        uses: golangci/golangci-lint-action@v6
         with:
           version: latest
           args: --timeout 5m --config=${{ github.workspace }}/.golangci.yaml -v --out-format=github-actions
