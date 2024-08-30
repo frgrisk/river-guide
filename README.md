@@ -128,7 +128,7 @@ The application accepts several flags:
   Control").
 - `--primary-color`: primary color for text (default is "#333").
 - `--favicon`: path to favicon (default is embedded favicon).
-- `--rds`: enable support to control RDS instances (default is `false`). 
+- `--rds`: enable support to control RDS instances (default is `false`).
 
 ### Configuration file
 

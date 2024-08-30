@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+
 	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
 	"golang.org/x/sync/errgroup"
-	"sort"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -152,7 +153,6 @@ func (h *AWSProvider) GetRDSInstances(tags map[string]string) ([]*Server, error)
 
 	}
 	return servers, nil
-
 }
 
 func areTagsMatch(tags map[string]string, instanceTags []rdstypes.Tag) bool {
