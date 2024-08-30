@@ -108,6 +108,12 @@
 			color: #333;
 		}
 
+		.server-icon {
+			font-weight: bold;
+			color: #FFC107;
+			margin-right: 25%;
+		}
+
 		@keyframes spin {
 			0% { transform: rotate(0deg); }
 			100% { transform: rotate(360deg); }
@@ -160,6 +166,7 @@
 			{{range .Servers}}
 				<div class="server-item">
 					<div class="server-name">{{.Name}}</div>
+					<div class="server-icon">{{.Type}}</div>
 					<div class="server-status {{.Status}}">
 						{{.Status}}
 					</div>
