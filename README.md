@@ -5,12 +5,12 @@
 River-Guide is a simple web interface for managing cloud instances.
 Currently, AWS EC2 instances, AWS RDS instances and Azure Virtual Machines are
 supported. AWS RDS management is turned off by default, but can be enabled by
-setting the `--rds` flag at application start up. 
+setting the `--rds` flag at application start up.
 
-River-Guide utilizes the respective cloud provider's APIs to provide listing 
+River-Guide utilizes the respective cloud provider's APIs to provide listing
 and start/stop capabilities of instances through a web interface. River-Guide
-also supports tag-based filtering of instances, enabling you to only display 
-instances of interest. Configuration can be provided through command line 
+also supports tag-based filtering of instances, enabling you to only display
+instances of interest. Configuration can be provided through command line
 flags, a configuration file, or environment variables.
 
 ![Screenshot 2024-04-03 at 15.36.33.png](cmd/assets/screenshot.png)
