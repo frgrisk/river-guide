@@ -72,7 +72,6 @@ are required:
 - `rds:DescribeDBInstances`
 - `rds:StartDBInstance`
 - `rds:StopDBInstance`
-- `rds:DescribeDBInstances`
 
 For Azure, the following [Microsoft.Compute permissions](https://learn.microsoft.com/en-us/azure/role-based-access-control/permissions/compute#microsoftcompute)
 are required:
