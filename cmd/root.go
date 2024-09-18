@@ -24,7 +24,6 @@ package cmd
 import (
 	"context"
 	_ "embed"
-	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -38,11 +37,10 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute"
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/smithy-go"
+	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -55,10 +53,15 @@ var (
 	subscriptionID string
 )
 
+type ServerType string
+
 const (
 	defaultPort = 3000
 
 	defaultReadHeaderTimeout = 3 * time.Second
+
+	EC2 ServerType = "EC2"
+	RDS ServerType = "RDS"
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -98,6 +101,7 @@ func init() {
 	rootCmd.Flags().String("provider", "aws", "cloud provider (aws or azure)")
 	rootCmd.Flags().String("resource-group-name", "", "filter instances based on their resource group membership (only used with the Azure provider)")
 	rootCmd.Flags().String("subscription-id", "", "subscription ID (required for Azure)")
+	rootCmd.Flags().Bool("rds", false, "enable RDS support")
 
 	err := viper.BindPFlags(rootCmd.Flags())
 	if err != nil {
@@ -146,15 +150,6 @@ type CloudProvider interface {
 	GetStatus() string
 }
 
-type AWSProvider struct {
-	svc *ec2.Client
-}
-
-// GetStatus implements CloudProvider.
-func (h *AWSProvider) GetStatus() string {
-	panic("unimplemented")
-}
-
 // AzureProvider implements CloudProvider for Azure VM
 type AzureProvider struct {
 	vmClient *armcompute.VirtualMachinesClient
@@ -171,6 +166,7 @@ type Server struct {
 	ID                *string
 	Status            string
 	ResourceGroupName string
+	Type              ServerType
 }
 
 // ServerBank represents a bank of AWS servers.
@@ -200,64 +196,6 @@ func (h *APIHandler) PowerOffAll(sb *ServerBank) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.provider.PowerOffAll(sb)
-}
-
-// GetServerBank queries AWS EC2 instances based on the specified tags.
-func (h *AWSProvider) GetServerBank(tags map[string]string) (*ServerBank, error) {
-	// if provider is aws then do this if not do that if h.handler is azure then do azure
-	// Build the filter for tag-based instance query
-	filters := make([]types.Filter, 0, len(tags)+1)
-	for key, value := range tags {
-		filters = append(filters, types.Filter{
-			Name:   aws.String(fmt.Sprintf("tag:%s", key)),
-			Values: []string{value},
-		})
-	}
-	filters = append(filters, types.Filter{
-		Name: aws.String("instance-state-name"),
-		Values: []string{
-			string(types.InstanceStateNamePending),
-			string(types.InstanceStateNameRunning),
-			string(types.InstanceStateNameStopping),
-			string(types.InstanceStateNameStopped),
-		},
-	})
-
-	// Describe EC2 instances with the specified tags
-	resp, err := h.svc.DescribeInstances(
-		context.TODO(),
-		&ec2.DescribeInstancesInput{
-			Filters: filters,
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to describe instances: %v", err)
-	}
-
-	// Create server bank and populate server list
-	serverBank := &ServerBank{}
-	for _, reservation := range resp.Reservations {
-		for _, instance := range reservation.Instances {
-			server := &Server{
-				ID:     instance.InstanceId,
-				Status: string(instance.State.Name),
-			}
-			for _, tag := range instance.Tags {
-				if *tag.Key == "Name" {
-					server.Name = *tag.Value
-					break
-				}
-			}
-			serverBank.Servers = append(serverBank.Servers, server)
-		}
-	}
-
-	// Sort servers by name
-	sort.Slice(serverBank.Servers, func(i, j int) bool {
-		return serverBank.Servers[i].Name < serverBank.Servers[j].Name
-	})
-
-	return serverBank, nil
 }
 
 // GetServerBank queries Azure VM instances based on the specified tags.
@@ -361,66 +299,6 @@ func normalizeStatus(azureStatus string) string {
 	default:
 		return string(types.InstanceStateNamePending)
 	}
-}
-
-// PowerOnAll powers on all the servers in the bank and updates their statuses.
-func (h *AWSProvider) PowerOnAll(sb *ServerBank) error {
-	var instanceIDs []string
-	for _, server := range sb.Servers {
-		if server.Status == string(types.InstanceStateNameStopped) {
-			instanceIDs = append(instanceIDs, *server.ID)
-		}
-	}
-	// We set DryRun to true to check to see if the instance exists, and we have the
-	// necessary permissions to monitor the instance.
-	input := &ec2.StartInstancesInput{
-		InstanceIds: instanceIDs,
-		DryRun:      aws.Bool(true),
-	}
-	_, err := h.svc.StartInstances(context.TODO(), input)
-	// If the error code is `DryRunOperation` it means we have the necessary
-	// permissions to Start this instance
-	if err != nil {
-		var ae smithy.APIError
-		if errors.As(err, &ae) {
-			if ae.ErrorCode() == "DryRunOperation" {
-				// Let's now set dry run to be false. This will allow us to start the instances
-				input.DryRun = aws.Bool(false)
-				_, err = h.svc.StartInstances(context.TODO(), input)
-			}
-		}
-	}
-	return err
-}
-
-// PowerOffAll powers off all the servers in the bank and updates their statuses.
-func (h *AWSProvider) PowerOffAll(sb *ServerBank) error {
-	var instanceIDs []string
-	for _, server := range sb.Servers {
-		if server.Status == string(types.InstanceStateNameRunning) {
-			instanceIDs = append(instanceIDs, *server.ID)
-		}
-	}
-	// We set DryRun to true to check to see if the instance exists, and we have the
-	// necessary permissions to monitor the instance.
-	input := &ec2.StopInstancesInput{
-		InstanceIds: instanceIDs,
-		DryRun:      aws.Bool(true),
-	}
-	_, err := h.svc.StopInstances(context.TODO(), input)
-	// If the error code is `DryRunOperation` it means we have the necessary
-	// permissions to Stop this instance
-	if err != nil {
-		var ae smithy.APIError
-		if errors.As(err, &ae) {
-			if ae.ErrorCode() == "DryRunOperation" {
-				// Let's now set dry run to be false. This will allow us to start the instances
-				input.DryRun = aws.Bool(false)
-				_, err = h.svc.StopInstances(context.TODO(), input)
-			}
-		}
-	}
-	return err
 }
 
 // PowerOnAll powers on all the servers in the bank and updates their statuses.
@@ -557,6 +435,7 @@ func serve() {
 	})
 
 	provider := viper.GetString("provider")
+	enableRds := viper.GetBool("rds")
 
 	var cloudProvider CloudProvider
 	switch strings.ToLower(provider) {
@@ -568,7 +447,14 @@ func serve() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		cloudProvider = &AWSProvider{svc: ec2.NewFromConfig(cfg)}
+		var rdsClient *rds.Client
+		if enableRds {
+			rdsClient = rds.NewFromConfig(cfg)
+		}
+		cloudProvider = &AWSProvider{
+			svc: ec2.NewFromConfig(cfg),
+			rds: rdsClient,
+		}
 	case "azure":
 		subscriptionID = viper.GetString("subscription-id")
 		if subscriptionID == "" {
