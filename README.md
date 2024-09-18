@@ -3,11 +3,14 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/frgrisk/river-guide)](https://goreportcard.com/report/github.com/frgrisk/river-guide)
 
 River-Guide is a simple web interface for managing cloud instances.
-Currently, AWS EC2 instances and Azure Virtual Machines are supported. It
-utilizes the respective cloud provider's APIs to provide listing and
-start/stop capabilities of instances through a web interface. River-Guide also
-supports tag-based filtering of instances, enabling you to only display
-instances of interest. Configuration can be provided through command line
+Currently, AWS EC2 instances, AWS RDS instances and Azure Virtual Machines are
+supported. AWS RDS management is turned off by default, but can be enabled by
+setting the `--rds` flag at application start up. 
+
+River-Guide utilizes the respective cloud provider's APIs to provide listing 
+and start/stop capabilities of instances through a web interface. River-Guide
+also supports tag-based filtering of instances, enabling you to only display 
+instances of interest. Configuration can be provided through command line 
 flags, a configuration file, or environment variables.
 
 ![Screenshot 2024-04-03 at 15.36.33.png](cmd/assets/screenshot.png)
@@ -55,13 +58,21 @@ use the credentials configured on the machine it's running on.
 
 ### Required Permissions
 
-For AWS, the following [Amazon EC2 permissions](https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_Operations.html)
+For AWS EC2, the following [Amazon EC2 permissions](https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_Operations.html)
 are required:
 
 - `ec2:DescribeInstances`
 - `ec2:StartInstances`
 - `ec2:StopInstances`
 - `ec2:DescribeInstanceStatus`
+
+For AWS RDS, the following [Amazon RDS permissions](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_Operations.html)
+are required:
+
+- `rds:DescribeDBInstances`
+- `rds:StartDBInstance`
+- `rds:StopDBInstance`
+- `rds:DescribeDBInstances`
 
 For Azure, the following [Microsoft.Compute permissions](https://learn.microsoft.com/en-us/azure/role-based-access-control/permissions/compute#microsoftcompute)
 are required:
@@ -83,6 +94,12 @@ use AWS as the cloud provider, and display all instances.
 
 ```bash
 river-guide
+```
+
+Start the server with RDS support enabled.
+
+```bash
+river-guide --rds
 ```
 
 Start the server with a custom port and title.
