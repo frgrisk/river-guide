@@ -36,7 +36,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v6"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -216,7 +216,7 @@ func (a *AzureProvider) GetServerBank(tags map[string]string) (*ServerBank, erro
 			// Extract the resource group name from each vm ID
 			resourceGroupName := extractResourceGroupName(*vm.ID)
 			// If a specific resource group is specified, skip unmatched VMs
-			if specifiedResourceGroupName != "" && resourceGroupName != specifiedResourceGroupName {
+			if specifiedResourceGroupName != "" && !strings.EqualFold(resourceGroupName, specifiedResourceGroupName) {
 				continue
 			}
 			match := true
