@@ -10,7 +10,7 @@ linters:
     - staticcheck
     - tenv
     - unconvert
-    - gomnd
+    - mnd
     - prealloc
     - goconst
 
