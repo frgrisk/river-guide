@@ -25,4 +25,7 @@ go.work
 
 river-guide
 
-node_modules
+node_modules/
+
+dist/
+
