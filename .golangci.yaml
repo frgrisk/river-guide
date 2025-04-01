@@ -1,31 +1,48 @@
+version: "2"
 linters:
   enable:
     - asciicheck
+    - goconst
     - gocritic
-    - gofmt
-    - gofumpt
     - gosec
     - misspell
-    - revive
-    - staticcheck
-    - tenv
-    - unconvert
     - mnd
     - prealloc
-    - goconst
-
-linters-settings:
-  govet:
-    enable-all: true
-    disable:
-      - shadow
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-      - performance
-      - experimental
-      - opinionated
-    disabled-checks:
-      - paramTypeCombine
-      - rangeValCopy
+    - revive
+    - unconvert
+  settings:
+    gocritic:
+      disabled-checks:
+        - paramTypeCombine
+        - rangeValCopy
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+        - experimental
+        - opinionated
+    govet:
+      disable:
+        - shadow
+      enable-all: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+    - gofumpt
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
