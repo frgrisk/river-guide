@@ -15,9 +15,12 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.9.1
-	github.com/spf13/viper v1.20.1
-	github.com/urfave/negroni/v3 v3.1.1
-	golang.org/x/sync v0.13.0
+        github.com/spf13/viper v1.20.1
+        github.com/urfave/negroni/v3 v3.1.1
+       github.com/coreos/go-oidc/v3 v3.7.0
+       github.com/gorilla/sessions v1.2.1
+       golang.org/x/oauth2 v0.17.0
+        golang.org/x/sync v0.13.0
 )
 
 require (
@@ -36,7 +39,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.19 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
-	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
