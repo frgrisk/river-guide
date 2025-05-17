@@ -584,6 +584,9 @@ func serve() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		if cfg.Region == "" {
+			log.Fatal("AWS region is required when using AWS provider. Set the AWS_REGION environment variable.")
+		}
 		var rdsClient *rds.Client
 		if enableRds {
 			rdsClient = rds.NewFromConfig(cfg)
