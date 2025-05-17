@@ -145,6 +145,13 @@ The application accepts several flags:
 - `--primary-color`: primary color for text (default is "#333").
 - `--favicon`: path to favicon (default is embedded favicon).
 - `--rds`: enable support to control RDS instances (default is `false`).
+- `--oidc-issuer`: OIDC issuer URL. When set along with the
+  client options below, the application requires login.
+- `--oidc-client-id`: OIDC client ID.
+- `--oidc-client-secret`: OIDC client secret.
+- `--oidc-redirect-url`: redirect URL configured with the provider.
+- `--oidc-groups`: comma-separated list of allowed groups. If empty, all
+  authenticated users are allowed.
 
 ### Configuration file
 
@@ -161,6 +168,12 @@ tags:
 title: Environment Control
 primary-color: "#333"
 favicon: "/path/to/favicon"
+oidc-issuer: "https://auth.example.com"
+oidc-client-id: "river-guide"
+oidc-client-secret: "secret"
+oidc-redirect-url: "https://river.example.com/callback"
+oidc-groups:
+  - admins
 ```
 
 ### Environment variables

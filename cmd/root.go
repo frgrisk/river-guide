@@ -35,6 +35,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/google/uuid"
+	"github.com/gorilla/sessions"
+	"golang.org/x/oauth2"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v6"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -51,6 +56,12 @@ import (
 var (
 	cfgFile        string
 	subscriptionID string
+	oidcProvider   *oidc.Provider
+	oidcVerifier   *oidc.IDTokenVerifier
+	oauth2Config   *oauth2.Config
+	sessionStore   *sessions.CookieStore
+	allowedGroups  []string
+	oidcEnabled    bool
 )
 
 type ServerType string
@@ -102,6 +113,11 @@ func init() {
 	rootCmd.Flags().String("resource-group-name", "", "filter instances based on their resource group membership (only used with the Azure provider)")
 	rootCmd.Flags().String("subscription-id", "", "subscription ID (required for Azure)")
 	rootCmd.Flags().Bool("rds", false, "enable RDS support")
+	rootCmd.Flags().String("oidc-issuer", "", "OIDC issuer URL")
+	rootCmd.Flags().String("oidc-client-id", "", "OIDC client ID")
+	rootCmd.Flags().String("oidc-client-secret", "", "OIDC client secret")
+	rootCmd.Flags().String("oidc-redirect-url", "", "OIDC redirect URL")
+	rootCmd.Flags().StringSlice("oidc-groups", []string{}, "allowed OIDC groups")
 
 	err := viper.BindPFlags(rootCmd.Flags())
 	if err != nil {
@@ -415,6 +431,102 @@ func FaviconHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, viper.GetString("favicon"))
 }
 
+func LoginHandler(w http.ResponseWriter, r *http.Request) {
+	if !oidcEnabled {
+		http.Redirect(w, r, viper.GetString("path-prefix"), http.StatusFound)
+		return
+	}
+	state := uuid.NewString()
+	session, _ := sessionStore.Get(r, "oidc")
+	session.Values["state"] = state
+	_ = session.Save(r, w)
+	http.Redirect(w, r, oauth2Config.AuthCodeURL(state), http.StatusFound)
+}
+
+func CallbackHandler(w http.ResponseWriter, r *http.Request) {
+	if !oidcEnabled {
+		http.Redirect(w, r, viper.GetString("path-prefix"), http.StatusFound)
+		return
+	}
+	session, _ := sessionStore.Get(r, "oidc")
+	if r.URL.Query().Get("state") != session.Values["state"] {
+		http.Error(w, "invalid state", http.StatusBadRequest)
+		return
+	}
+	token, err := oauth2Config.Exchange(r.Context(), r.URL.Query().Get("code"))
+	if err != nil {
+		http.Error(w, "token exchange failed", http.StatusInternalServerError)
+		return
+	}
+	rawIDToken, ok := token.Extra("id_token").(string)
+	if !ok {
+		http.Error(w, "no id token", http.StatusInternalServerError)
+		return
+	}
+	idToken, err := oidcVerifier.Verify(r.Context(), rawIDToken)
+	if err != nil {
+		http.Error(w, "invalid id token", http.StatusUnauthorized)
+		return
+	}
+	var claims struct {
+		Groups []string `json:"groups"`
+	}
+	_ = idToken.Claims(&claims)
+	if len(allowedGroups) > 0 && !hasAllowedGroup(claims.Groups) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	session.Values["id_token"] = rawIDToken
+	delete(session.Values, "state")
+	_ = session.Save(r, w)
+	http.Redirect(w, r, viper.GetString("path-prefix"), http.StatusFound)
+}
+
+func hasAllowedGroup(groups []string) bool {
+	for _, g := range groups {
+		for _, a := range allowedGroups {
+			if g == a {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !oidcEnabled {
+			next.ServeHTTP(w, r)
+			return
+		}
+		path := strings.TrimPrefix(r.URL.Path, viper.GetString("path-prefix"))
+		if path == "login" || path == "callback" || path == "favicon.ico" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		session, _ := sessionStore.Get(r, "oidc")
+		rawIDToken, ok := session.Values["id_token"].(string)
+		if !ok {
+			http.Redirect(w, r, viper.GetString("path-prefix")+"login", http.StatusFound)
+			return
+		}
+		idToken, err := oidcVerifier.Verify(r.Context(), rawIDToken)
+		if err != nil {
+			http.Redirect(w, r, viper.GetString("path-prefix")+"login", http.StatusFound)
+			return
+		}
+		var claims struct {
+			Groups []string `json:"groups"`
+		}
+		_ = idToken.Claims(&claims)
+		if len(allowedGroups) > 0 && !hasAllowedGroup(claims.Groups) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func getVMClient(subscriptionID string) (*armcompute.VirtualMachinesClient, error) {
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
@@ -436,6 +548,31 @@ func serve() {
 
 	provider := viper.GetString("provider")
 	enableRds := viper.GetBool("rds")
+
+	oidcIssuer := viper.GetString("oidc-issuer")
+	oidcClientID := viper.GetString("oidc-client-id")
+	oidcClientSecret := viper.GetString("oidc-client-secret")
+	oidcRedirectURL := viper.GetString("oidc-redirect-url")
+	allowedGroups = viper.GetStringSlice("oidc-groups")
+
+	if oidcIssuer != "" && oidcClientID != "" && oidcClientSecret != "" && oidcRedirectURL != "" {
+		var err error
+		oidcEnabled = true
+		ctx := context.TODO()
+		oidcProvider, err = oidc.NewProvider(ctx, oidcIssuer)
+		if err != nil {
+			log.Fatalf("failed to init oidc provider: %v", err)
+		}
+		oidcVerifier = oidcProvider.Verifier(&oidc.Config{ClientID: oidcClientID})
+		oauth2Config = &oauth2.Config{
+			ClientID:     oidcClientID,
+			ClientSecret: oidcClientSecret,
+			Endpoint:     oidcProvider.Endpoint(),
+			RedirectURL:  oidcRedirectURL,
+			Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
+		}
+		sessionStore = sessions.NewCookieStore([]byte(oidcClientSecret))
+	}
 
 	var cloudProvider CloudProvider
 	switch strings.ToLower(provider) {
@@ -482,10 +619,12 @@ func serve() {
 	rp.HandleFunc("/", apiHandler.IndexHandler).Methods("GET")
 	rp.HandleFunc("/favicon.ico", FaviconHandler).Methods("GET")
 	rp.HandleFunc("/toggle", apiHandler.ToggleHandler).Methods("POST")
+	rp.HandleFunc("/login", LoginHandler).Methods("GET")
+	rp.HandleFunc("/callback", CallbackHandler).Methods("GET")
 
 	// Add middleware
 	n := negroni.Classic() // Includes some default middlewares
-	n.UseHandler(rp)
+	n.UseHandler(AuthMiddleware(rp))
 
 	server := &http.Server{
 		Addr:              ":" + strconv.Itoa(viper.GetInt("port")),
