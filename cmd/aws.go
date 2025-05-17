@@ -239,7 +239,7 @@ func (h *AWSProvider) PowerOnRDSInstances(servers []*Server) error {
 			return nil
 		})
 	}
-	return nil
+	return g.Wait()
 }
 
 // PowerOffAll powers off all the servers in the bank and updates their statuses.

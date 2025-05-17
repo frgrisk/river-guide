@@ -405,11 +405,11 @@ var favicon []byte
 
 func FaviconHandler(w http.ResponseWriter, r *http.Request) {
 	if viper.GetString("favicon") == "" {
+		w.WriteHeader(http.StatusOK)
 		_, err := w.Write(favicon)
 		if err != nil {
 			panic(err)
 		}
-		w.WriteHeader(http.StatusOK)
 		return
 	}
 	http.ServeFile(w, r, viper.GetString("favicon"))
