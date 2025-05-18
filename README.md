@@ -145,13 +145,11 @@ The application accepts several flags:
 - `--primary-color`: primary color for text (default is "#333").
 - `--favicon`: path to favicon (default is embedded favicon).
 - `--rds`: enable support to control RDS instances (default is `false`).
-- `--oidc-issuer`: OIDC issuer URL. When set along with the
-  client options below, the application requires login.
-- `--oidc-client-id`: OIDC client ID.
-- `--oidc-client-secret`: OIDC client secret.
-- `--oidc-redirect-url`: redirect URL configured with the provider.
-- `--oidc-groups`: comma-separated list of allowed groups. If empty, all
-  authenticated users are allowed.
+- `--oidc-issuer`: OIDC issuer URL (optional)
+- `--oidc-client-id`: OIDC client ID (optional)
+- `--oidc-client-secret`: OIDC client secret (optional)
+- `--oidc-redirect-url`: OIDC redirect URL (optional)
+- `--oidc-groups`: comma-separated list of allowed OIDC groups (optional)
 
 ### Configuration file
 
@@ -168,12 +166,6 @@ tags:
 title: Environment Control
 primary-color: "#333"
 favicon: "/path/to/favicon"
-oidc-issuer: "https://auth.example.com"
-oidc-client-id: "river-guide"
-oidc-client-secret: "secret"
-oidc-redirect-url: "https://river.example.com/callback"
-oidc-groups:
-  - admins
 ```
 
 ### Environment variables
@@ -185,6 +177,30 @@ instance, to set the title, you could use the following command:
 
 ```bash
 export RIVER_GUIDE_TITLE="My Custom Title"
+```
+
+### Optional OIDC login
+
+River Guide can optionally protect the UI with an OIDC login. Set the following flags (or their configuration equivalents) to enable authentication:
+
+- `--oidc-issuer`: the OIDC issuer URL
+- `--oidc-client-id`: the client ID registered with the issuer
+- `--oidc-client-secret`: the client secret for the client ID
+- `--oidc-redirect-url`: redirect URL configured for the client
+- `--oidc-groups`: comma-separated list of groups allowed to access the UI (optional)
+
+All four of the issuer, client ID, client secret, and redirect URL must be provided for authentication to be enabled. The redirect URL must exactly match the value configured for your OIDC client. If `--oidc-groups` is omitted, users from any group are allowed.
+
+Example YAML configuration:
+
+```yaml
+oidc-issuer: https://auth.example.com
+oidc-client-id: my-app
+oidc-client-secret: super-secret
+oidc-redirect-url: https://my-app.example.com/callback
+oidc-groups:
+  - admins
+  - operators
 ```
 
 ## API

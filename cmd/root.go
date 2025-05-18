@@ -352,6 +352,9 @@ func (a *AzureProvider) PowerOffAll(sb *ServerBank) error {
 //go:embed assets/index.gohtml
 var indexTemplate string
 
+//go:embed assets/landing.gohtml
+var landingTemplate string
+
 // IndexHandler handles the index page.
 func (h *APIHandler) IndexHandler(w http.ResponseWriter, _ *http.Request) {
 	tmpl := template.Must(template.New("index").Parse(indexTemplate))
@@ -387,6 +390,23 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, _ *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+}
+
+// LandingHandler serves the landing page prompting for login.
+func LandingHandler(w http.ResponseWriter, _ *http.Request) {
+	tmpl := template.Must(template.New("landing").Parse(landingTemplate))
+	data := struct {
+		Title        string
+		PrimaryColor string
+		LoginPath    string
+	}{
+		Title:        viper.GetString("title"),
+		PrimaryColor: viper.GetString("primary-color"),
+		LoginPath:    filepath.Join(viper.GetString("path-prefix"), "login"),
+	}
+	if err := tmpl.Execute(w, data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
@@ -507,7 +527,11 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		session, _ := sessionStore.Get(r, "oidc")
 		rawIDToken, ok := session.Values["id_token"].(string)
 		if !ok {
-			http.Redirect(w, r, viper.GetString("path-prefix")+"login", http.StatusFound)
+			if r.Method == http.MethodGet && path == "" {
+				LandingHandler(w, r)
+			} else {
+				http.Redirect(w, r, viper.GetString("path-prefix")+"login", http.StatusFound)
+			}
 			return
 		}
 		idToken, err := oidcVerifier.Verify(r.Context(), rawIDToken)
