@@ -169,7 +169,7 @@ type Server struct {
 	Type              ServerType
 }
 
-// ServerBank represents a bank of AWS servers.
+// ServerBank represents a bank of servers.
 type ServerBank struct {
 	Servers []*Server
 }
