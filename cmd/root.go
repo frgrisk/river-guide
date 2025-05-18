@@ -93,7 +93,7 @@ func init() {
 
 	rootCmd.Flags().IntP("port", "p", defaultPort, "port to listen on")
 	rootCmd.Flags().String("path-prefix", "/", "prefix to serve the web interface on")
-	rootCmd.Flags().StringToStringP("tags", "t", map[string]string{}, "filter instance using tag key-value pairs (e.g. Environment=dev,Name=dev.example.com)")
+	rootCmd.Flags().StringToStringP("tags", "t", map[string]string{}, "filter instances using tag key-value pairs (e.g. Environment=dev,Name=dev.example.com)")
 	rootCmd.Flags().String("title", "Environment Control", "title to display on the web page")
 	rootCmd.Flags().String("primary-color", "#333", "primary color for text")
 	rootCmd.Flags().String("favicon", "", "path to favicon")
