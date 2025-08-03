@@ -584,15 +584,20 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	// Store essential claims for session management
 	session.Values["user_groups"] = groups
 
-	// Store configurable claims for logging (convert to string map for gob serialization)
+	// Store configurable claims for logging as individual session keys (avoids gob map serialization issues)
 	logClaims := viper.GetStringSlice("oidc-log-claims")
-	userLogData := make(map[string]string)
-	for _, claimName := range logClaims {
-		if claimValue, exists := allClaims[claimName]; exists {
-			userLogData[claimName] = fmt.Sprintf("%v", claimValue)
+	// Clear any existing claim keys first
+	for key := range session.Values {
+		if keyStr, ok := key.(string); ok && strings.HasPrefix(keyStr, "user_claim_") {
+			delete(session.Values, key)
 		}
 	}
-	session.Values["user_log_claims"] = userLogData
+	// Store each claim as a separate session key
+	for _, claimName := range logClaims {
+		if claimValue, exists := allClaims[claimName]; exists {
+			session.Values["user_claim_"+claimName] = fmt.Sprintf("%v", claimValue)
+		}
+	}
 	session.Values["token_expiry"] = idToken.Expiry.Unix()
 	session.Values["authenticated"] = true
 	delete(session.Values, "state")
@@ -683,7 +688,16 @@ func (a *AuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next 
 		}
 	}
 	// Add user info to request context for logging
-	userLogClaims, _ := session.Values["user_log_claims"].(map[string]string)
+	// Reconstruct claims map from individual session keys
+	userLogClaims := make(map[string]string)
+	for key, value := range session.Values {
+		if keyStr, ok := key.(string); ok && strings.HasPrefix(keyStr, "user_claim_") {
+			claimName := strings.TrimPrefix(keyStr, "user_claim_")
+			if claimValue, ok := value.(string); ok {
+				userLogClaims[claimName] = claimValue
+			}
+		}
+	}
 	ctx := context.WithValue(r.Context(), userSubjectKey, userLogClaims)
 	next(w, r.WithContext(ctx))
 }

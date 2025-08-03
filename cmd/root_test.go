@@ -257,41 +257,72 @@ func TestUserAwareLogger(t *testing.T) {
 }
 
 func TestSessionClaimsSerialization(t *testing.T) {
-	// Test that map[string]string can be serialized/deserialized by gob
-	// This is what gorilla/sessions uses internally
+	// Test that individual claim strings can be serialized/deserialized by gob
+	// This is what gorilla/sessions uses internally when we store claims as separate keys
 
-	testClaims := map[string]string{
-		"sub":   "user123",
-		"email": "user@example.com",
-		"name":  "John Doe",
+	testSessionValues := map[string]interface{}{
+		"user_claim_sub":   "user123",
+		"user_claim_email": "user@example.com",
+		"user_claim_name":  "John Doe",
+		"authenticated":    true,
+		"token_expiry":     int64(1234567890),
 	}
 
 	// Test gob encoding (what sessions does)
 	var buf bytes.Buffer
 	encoder := gob.NewEncoder(&buf)
-	err := encoder.Encode(testClaims)
+	err := encoder.Encode(testSessionValues)
 	if err != nil {
-		t.Fatalf("Failed to encode claims: %v", err)
+		t.Fatalf("Failed to encode session values: %v", err)
 	}
 
 	// Test gob decoding
-	var decoded map[string]string
+	var decoded map[string]interface{}
 	decoder := gob.NewDecoder(&buf)
 	err = decoder.Decode(&decoded)
 	if err != nil {
-		t.Fatalf("Failed to decode claims: %v", err)
+		t.Fatalf("Failed to decode session values: %v", err)
 	}
 
 	// Verify data integrity
-	if len(decoded) != len(testClaims) {
-		t.Errorf("Decoded map has wrong length: got %d, want %d", len(decoded), len(testClaims))
+	if len(decoded) != len(testSessionValues) {
+		t.Errorf("Decoded map has wrong length: got %d, want %d", len(decoded), len(testSessionValues))
 	}
 
-	for key, expectedValue := range testClaims {
+	for key, expectedValue := range testSessionValues {
 		if actualValue, exists := decoded[key]; !exists {
 			t.Errorf("Missing key %q in decoded map", key)
 		} else if actualValue != expectedValue {
-			t.Errorf("Wrong value for key %q: got %q, want %q", key, actualValue, expectedValue)
+			t.Errorf("Wrong value for key %q: got %v, want %v", key, actualValue, expectedValue)
+		}
+	}
+
+	// Test claim reconstruction
+	reconstructedClaims := make(map[string]string)
+	for key, value := range decoded {
+		if strings.HasPrefix(key, "user_claim_") {
+			claimName := strings.TrimPrefix(key, "user_claim_")
+			if claimValue, ok := value.(string); ok {
+				reconstructedClaims[claimName] = claimValue
+			}
+		}
+	}
+
+	expectedClaims := map[string]string{
+		"sub":   "user123",
+		"email": "user@example.com",
+		"name":  "John Doe",
+	}
+
+	if len(reconstructedClaims) != len(expectedClaims) {
+		t.Errorf("Reconstructed claims has wrong length: got %d, want %d", len(reconstructedClaims), len(expectedClaims))
+	}
+
+	for key, expectedValue := range expectedClaims {
+		if actualValue, exists := reconstructedClaims[key]; !exists {
+			t.Errorf("Missing claim %q in reconstructed map", key)
+		} else if actualValue != expectedValue {
+			t.Errorf("Wrong value for claim %q: got %q, want %q", key, actualValue, expectedValue)
 		}
 	}
 }
