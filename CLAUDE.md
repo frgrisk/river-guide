@@ -48,8 +48,9 @@ go test ./...
 ### Session Management
 
 - Session cookies should be HttpOnly, Secure (for HTTPS), SameSite=Lax
-- Store only: `user_subject`, `user_groups`, `token_expiry`, `authenticated` flag
+- Store only: `user_groups`, `token_expiry`, `authenticated` flag, and individual claim keys
 - Never store full ID tokens in sessions (too large)
+- Store claims as individual session keys (e.g., `user_claim_sub`, `user_claim_email`) to avoid gob serialization issues with maps
 - Clear corrupted sessions and redirect to login
 
 ### Configuration
@@ -163,3 +164,27 @@ const userSubjectKey contextKey = "user_subject"
 ### Error Handling
 
 Always handle errors gracefully and provide user-friendly messages while logging technical details.
+
+### Session Storage
+
+Avoid storing maps in sessions due to gob serialization issues. Store complex data as individual keys:
+
+```go
+// Don't do this (gob serialization issues)
+session.Values["user_claims"] = map[string]string{"sub": "user123", "email": "user@example.com"}
+
+// Do this instead
+session.Values["user_claim_sub"] = "user123"
+session.Values["user_claim_email"] = "user@example.com"
+
+// Reconstruct when needed
+claims := make(map[string]string)
+for key, value := range session.Values {
+    if strings.HasPrefix(key, "user_claim_") {
+        claimName := strings.TrimPrefix(key, "user_claim_")
+        if claimValue, ok := value.(string); ok {
+            claims[claimName] = claimValue
+        }
+    }
+}
+```
