@@ -462,12 +462,14 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	state := uuid.NewString()
 	session, err := sessionStore.Get(r, "oidc")
 	if err != nil {
-		http.Error(w, "session error", http.StatusInternalServerError)
+		log.Printf("LoginHandler: session error: %v", err)
+		http.Error(w, fmt.Sprintf("session error: %v", err), http.StatusInternalServerError)
 		return
 	}
 	session.Values["state"] = state
 	if err := session.Save(r, w); err != nil {
-		http.Error(w, "failed to save session", http.StatusInternalServerError)
+		log.Printf("LoginHandler: failed to save session: %v", err)
+		http.Error(w, fmt.Sprintf("failed to save session: %v", err), http.StatusInternalServerError)
 		return
 	}
 	http.Redirect(w, r, oauth2Config.AuthCodeURL(state), http.StatusFound)
@@ -492,7 +494,8 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	
 	session, err := sessionStore.Get(r, "oidc")
 	if err != nil {
-		http.Error(w, "session error", http.StatusInternalServerError)
+		log.Printf("CallbackHandler: session error: %v", err)
+		http.Error(w, fmt.Sprintf("session error: %v", err), http.StatusInternalServerError)
 		return
 	}
 	storedState, ok := session.Values["state"].(string)
@@ -533,7 +536,8 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	session.Values["token_expiry"] = idToken.Expiry.Unix()
 	delete(session.Values, "state")
 	if err := session.Save(r, w); err != nil {
-		http.Error(w, "failed to save session", http.StatusInternalServerError)
+		log.Printf("CallbackHandler: failed to save session: %v", err)
+		http.Error(w, fmt.Sprintf("failed to save session: %v", err), http.StatusInternalServerError)
 		return
 	}
 	http.Redirect(w, r, viper.GetString("path-prefix"), http.StatusFound)
@@ -670,13 +674,20 @@ func serve() {
 			log.Fatalf("failed to generate session key: %v", err)
 		}
 		sessionStore = sessions.NewCookieStore(sessionKey)
+		pathPrefix := viper.GetString("path-prefix")
+		if pathPrefix == "" {
+			pathPrefix = "/"
+		} else if !strings.HasSuffix(pathPrefix, "/") {
+			pathPrefix = pathPrefix + "/"
+		}
 		sessionStore.Options = &sessions.Options{
-			Path:     viper.GetString("path-prefix"),
+			Path:     pathPrefix,
 			MaxAge:   86400, // 24 hours
 			HttpOnly: true,
 			Secure:   strings.HasPrefix(oidcRedirectURL, "https://"),
 			SameSite: http.SameSiteLaxMode,
 		}
+		log.Printf("OIDC session configuration: Path=%s, Secure=%v, MaxAge=%d", pathPrefix, strings.HasPrefix(oidcRedirectURL, "https://"), 86400)
 	}
 
 	var cloudProvider CloudProvider
