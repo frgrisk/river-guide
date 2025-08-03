@@ -23,6 +23,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/rand"
 	_ "embed"
 	"fmt"
 	"html/template"
@@ -34,8 +35,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"crypto/rand"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/google/uuid"
@@ -54,6 +53,15 @@ import (
 	"github.com/spf13/viper"
 	"github.com/urfave/negroni/v3"
 )
+
+const (
+	sessionKeySize = 32
+	sessionMaxAge  = 86400 // 24 hours
+)
+
+type contextKey string
+
+const userSubjectKey contextKey = "user_subject"
 
 var (
 	cfgFile        string
@@ -74,7 +82,7 @@ type UserAwareLogger struct {
 func (l *UserAwareLogger) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	start := time.Now()
 	userSubject := ""
-	if subject := r.Context().Value("user_subject"); subject != nil {
+	if subject := r.Context().Value(userSubjectKey); subject != nil {
 		userSubject = fmt.Sprintf(" user=%s", subject.(string))
 	}
 	next(rw, r)
@@ -485,8 +493,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	state := uuid.NewString()
 	session, err := sessionStore.Get(r, "oidc")
 	if err != nil {
-		log.Printf("LoginHandler: session error: %v", err)
-		http.Error(w, fmt.Sprintf("session error: %v", err), http.StatusInternalServerError)
+		clearSessionAndRedirectToLogin(w, r, fmt.Sprintf("LoginHandler: session error: %v", err))
 		return
 	}
 	session.Values["state"] = state
@@ -503,7 +510,7 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, viper.GetString("path-prefix"), http.StatusFound)
 		return
 	}
-	
+
 	// Check for OAuth error response
 	if errCode := r.URL.Query().Get("error"); errCode != "" {
 		errDesc := r.URL.Query().Get("error_description")
@@ -514,11 +521,10 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, errorMsg, http.StatusBadRequest)
 		return
 	}
-	
+
 	session, err := sessionStore.Get(r, "oidc")
 	if err != nil {
-		log.Printf("CallbackHandler: session error: %v", err)
-		http.Error(w, fmt.Sprintf("session error: %v", err), http.StatusInternalServerError)
+		clearSessionAndRedirectToLogin(w, r, fmt.Sprintf("CallbackHandler: session error: %v", err))
 		return
 	}
 	storedState, ok := session.Values["state"].(string)
@@ -581,6 +587,29 @@ func hasAllowedGroup(groups []string) bool {
 	return false
 }
 
+// clearSessionAndRedirectToLogin clears the session cookie and redirects to login
+func clearSessionAndRedirectToLogin(w http.ResponseWriter, r *http.Request, logMsg string) {
+	log.Print(logMsg)
+	// Clear the session cookie by setting it to expire immediately
+	pathPrefix := viper.GetString("path-prefix")
+	if pathPrefix == "" {
+		pathPrefix = "/"
+	} else if !strings.HasSuffix(pathPrefix, "/") {
+		pathPrefix += "/"
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oidc",
+		Value:    "",
+		Path:     pathPrefix,
+		MaxAge:   -1,
+		HttpOnly: true,
+	})
+
+	loginPath := strings.TrimSuffix(viper.GetString("path-prefix"), "/") + "/login"
+	http.Redirect(w, r, loginPath, http.StatusFound)
+}
+
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !oidcEnabled {
@@ -596,7 +625,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		}
 		session, err := sessionStore.Get(r, "oidc")
 		if err != nil {
-			http.Redirect(w, r, viper.GetString("path-prefix")+"login", http.StatusFound)
+			clearSessionAndRedirectToLogin(w, r, fmt.Sprintf("AuthMiddleware: session error: %v", err))
 			return
 		}
 		authenticated, ok := session.Values["authenticated"].(bool)
@@ -625,7 +654,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		}
 		// Add user info to request context for logging
 		userSubject, _ := session.Values["user_subject"].(string)
-		ctx := context.WithValue(r.Context(), "user_subject", userSubject)
+		ctx := context.WithValue(r.Context(), userSubjectKey, userSubject)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -671,7 +700,7 @@ func serve() {
 			log.Fatalf("failed to init oidc provider: %v", err)
 		}
 		oidcVerifier = oidcProvider.Verifier(&oidc.Config{ClientID: oidcClientID})
-		
+
 		// Use custom scopes if provided, otherwise use defaults
 		var scopes []string
 		if len(oidcScopes) > 0 {
@@ -683,7 +712,7 @@ func serve() {
 				scopes = append(scopes, "groups")
 			}
 		}
-		
+
 		oauth2Config = &oauth2.Config{
 			ClientID:     oidcClientID,
 			ClientSecret: oidcClientSecret,
@@ -691,7 +720,7 @@ func serve() {
 			RedirectURL:  oidcRedirectURL,
 			Scopes:       scopes,
 		}
-		sessionKey := make([]byte, 32)
+		sessionKey := make([]byte, sessionKeySize)
 		if _, err := rand.Read(sessionKey); err != nil {
 			log.Fatalf("failed to generate session key: %v", err)
 		}
@@ -700,16 +729,16 @@ func serve() {
 		if pathPrefix == "" {
 			pathPrefix = "/"
 		} else if !strings.HasSuffix(pathPrefix, "/") {
-			pathPrefix = pathPrefix + "/"
+			pathPrefix += "/"
 		}
 		sessionStore.Options = &sessions.Options{
 			Path:     pathPrefix,
-			MaxAge:   86400, // 24 hours
+			MaxAge:   sessionMaxAge,
 			HttpOnly: true,
 			Secure:   strings.HasPrefix(oidcRedirectURL, "https://"),
 			SameSite: http.SameSiteLaxMode,
 		}
-		log.Printf("OIDC session configuration: Path=%s, Secure=%v, MaxAge=%d", pathPrefix, strings.HasPrefix(oidcRedirectURL, "https://"), 86400)
+		log.Printf("OIDC session configuration: Path=%s, Secure=%v, MaxAge=%d", pathPrefix, strings.HasPrefix(oidcRedirectURL, "https://"), sessionMaxAge)
 	}
 
 	var cloudProvider CloudProvider
