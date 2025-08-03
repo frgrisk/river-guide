@@ -193,7 +193,7 @@ River Guide can optionally protect the UI with an OIDC login. Set the following 
 - `--oidc-scopes`: comma-separated list of OIDC scopes to request (optional)
 - `--oidc-log-claims`: comma-separated list of OIDC claims to include in request logs (optional)
 
-All four of the issuer, client ID, client secret, and redirect URL must be provided for authentication to be enabled. The redirect URL must exactly match the value configured for your OIDC client. 
+All four of the issuer, client ID, client secret, and redirect URL must be provided for authentication to be enabled. The redirect URL must exactly match the value configured for your OIDC client.
 
 If `--oidc-groups` is omitted, users from any group are allowed. If `--oidc-scopes` is omitted, the default scopes are "openid,profile,email" (plus "groups" if --oidc-groups is set). You can override the scopes entirely by providing custom values. If `--oidc-log-claims` is omitted, only the "sub" (subject) claim is logged with requests.
 

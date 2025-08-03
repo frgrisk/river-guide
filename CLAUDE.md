@@ -5,6 +5,7 @@ This file contains project-specific instructions for Claude when working on Rive
 ## Code Quality and Linting
 
 ### Running Linters
+
 Always run linting before committing changes:
 
 ```bash
@@ -17,6 +18,7 @@ go test ./...
 ```
 
 ### Key Linting Rules
+
 - Use `golangci-lint run --fix` to automatically fix most issues
 - Replace string concatenation with `+=` operator: `path += "/"` not `path = path + "/"`
 - Use `http.NoBody` instead of `nil` for HTTP request bodies
@@ -24,8 +26,10 @@ go test ./...
 - Use proper context key types (custom type, not string)
 - Mark unused parameters with `_` prefix
 - Follow struct field alignment recommendations
+- Always run `npx prettier --write` on modified files
 
 ### Testing Requirements
+
 - Always run tests after changes: `go test ./...`
 - Add test coverage for new functionality
 - Use proper mocking and table-driven tests
@@ -34,6 +38,7 @@ go test ./...
 ## OIDC Implementation
 
 ### Security Principles
+
 - Store minimal session data to avoid cookie size limits
 - Clear invalid sessions gracefully - redirect to login, don't show technical errors
 - Use cryptographically secure random keys
@@ -41,12 +46,14 @@ go test ./...
 - Log detailed errors server-side but show friendly messages to users
 
 ### Session Management
+
 - Session cookies should be HttpOnly, Secure (for HTTPS), SameSite=Lax
 - Store only: `user_subject`, `user_groups`, `token_expiry`, `authenticated` flag
 - Never store full ID tokens in sessions (too large)
 - Clear corrupted sessions and redirect to login
 
 ### Configuration
+
 - All OIDC params (issuer, client-id, client-secret, redirect-url) must be provided together
 - Scopes are configurable with sensible defaults
 - Only request "groups" scope if group filtering is configured
@@ -55,7 +62,9 @@ go test ./...
 ## Error Handling Patterns
 
 ### Session Errors
+
 Use the `clearSessionAndRedirectToLogin()` helper for any session-related errors:
+
 ```go
 if err != nil {
     clearSessionAndRedirectToLogin(w, r, fmt.Sprintf("Handler: session error: %v", err))
@@ -64,6 +73,7 @@ if err != nil {
 ```
 
 ### User-Friendly Messages
+
 - Log technical details server-side
 - Show user-friendly messages in browser
 - For OIDC errors, display provider error messages when available
@@ -72,12 +82,16 @@ if err != nil {
 ## Logging
 
 ### User-Aware Logging
+
 The application includes user identification in request logs:
+
 - Anonymous: `"GET / -> 200 OK in 5ms"`
 - Authenticated: `"GET /toggle user=john.doe@company.com -> 200 OK in 12ms"`
 
 ### Context Usage
+
 Add user info to request context for logging:
+
 ```go
 userSubject, _ := session.Values["user_subject"].(string)
 ctx := context.WithValue(r.Context(), userSubjectKey, userSubject)
@@ -87,6 +101,7 @@ next.ServeHTTP(w, r.WithContext(ctx))
 ## Development Workflow
 
 ### Before Committing
+
 1. Run `golangci-lint run --fix` to fix code quality issues
 2. Run `go build ./...` to ensure compilation
 3. Run `go test ./...` to ensure tests pass
@@ -94,6 +109,7 @@ next.ServeHTTP(w, r.WithContext(ctx))
 5. Test OIDC flows if authentication code was modified
 
 ### Git Practices
+
 - Write descriptive commit messages
 - Include "Co-Authored-By: Claude <noreply@anthropic.com>" in commits (though the user's config overrides this)
 - Group related changes into single commits
@@ -102,11 +118,13 @@ next.ServeHTTP(w, r.WithContext(ctx))
 ## Architecture Notes
 
 ### Provider Pattern
+
 - CloudProvider interface supports AWS and Azure
 - Each provider handles its own authentication and resource management
 - RDS support is optional and AWS-specific
 
 ### Middleware Stack
+
 1. Negroni recovery middleware
 2. Static file serving
 3. UserAwareLogger (custom request logging)
@@ -114,6 +132,7 @@ next.ServeHTTP(w, r.WithContext(ctx))
 5. Router (gorilla/mux)
 
 ### Security Considerations
+
 - Session keys are generated using crypto/rand
 - Cookie security flags are set based on redirect URL scheme
 - Group-based authorization is enforced after authentication
@@ -122,7 +141,9 @@ next.ServeHTTP(w, r.WithContext(ctx))
 ## Common Patterns
 
 ### Constants
+
 Define constants for magic numbers:
+
 ```go
 const (
     sessionKeySize = 32
@@ -131,11 +152,14 @@ const (
 ```
 
 ### Context Keys
+
 Use typed context keys:
+
 ```go
 type contextKey string
 const userSubjectKey contextKey = "user_subject"
 ```
 
 ### Error Handling
+
 Always handle errors gracefully and provide user-friendly messages while logging technical details.
