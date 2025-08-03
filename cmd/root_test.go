@@ -1,12 +1,16 @@
 package cmd
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+	"github.com/urfave/negroni/v3"
 )
 
 func TestExtractResourceGroupName(t *testing.T) {
@@ -180,6 +184,58 @@ func TestAuthMiddleware(t *testing.T) {
 
 			if nextCalled != tt.expectNext {
 				t.Errorf("next handler called = %v, want %v", nextCalled, tt.expectNext)
+			}
+		})
+	}
+}
+
+func TestUserAwareLogger(t *testing.T) {
+	var logOutput strings.Builder
+	logger := &UserAwareLogger{
+		Logger: &logrus.Logger{
+			Out:       &logOutput,
+			Formatter: &logrus.TextFormatter{DisableTimestamp: true},
+			Level:     logrus.InfoLevel,
+		},
+	}
+
+	tests := []struct {
+		name           string
+		userSubject    string
+		expectedInLog  string
+	}{
+		{
+			name:          "request without user",
+			userSubject:   "",
+			expectedInLog: "GET /test -> 200",
+		},
+		{
+			name:          "request with user",
+			userSubject:   "user123",
+			expectedInLog: "GET /test user=user123 -> 200",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logOutput.Reset()
+
+			req, _ := http.NewRequest("GET", "/test", nil)
+			if tt.userSubject != "" {
+				ctx := context.WithValue(req.Context(), "user_subject", tt.userSubject)
+				req = req.WithContext(ctx)
+			}
+
+			rw := negroni.NewResponseWriter(httptest.NewRecorder())
+			next := func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(200)
+			}
+
+			logger.ServeHTTP(rw, req, next)
+
+			logOutput := logOutput.String()
+			if !strings.Contains(logOutput, tt.expectedInLog) {
+				t.Errorf("Expected log to contain %q, got %q", tt.expectedInLog, logOutput)
 			}
 		})
 	}

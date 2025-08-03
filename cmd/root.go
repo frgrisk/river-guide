@@ -66,6 +66,29 @@ var (
 	oidcEnabled    bool
 )
 
+// Custom logger that includes user information
+type UserAwareLogger struct {
+	*log.Logger
+}
+
+func (l *UserAwareLogger) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	start := time.Now()
+	userSubject := ""
+	if subject := r.Context().Value("user_subject"); subject != nil {
+		userSubject = fmt.Sprintf(" user=%s", subject.(string))
+	}
+	next(rw, r)
+	res := rw.(negroni.ResponseWriter)
+	l.Printf("%s %s%s -> %d %s in %v",
+		r.Method,
+		r.URL.RequestURI(),
+		userSubject,
+		res.Status(),
+		http.StatusText(res.Status()),
+		time.Since(start),
+	)
+}
+
 type ServerType string
 
 const (
@@ -600,7 +623,10 @@ func AuthMiddleware(next http.Handler) http.Handler {
 				return
 			}
 		}
-		next.ServeHTTP(w, r)
+		// Add user info to request context for logging
+		userSubject, _ := session.Values["user_subject"].(string)
+		ctx := context.WithValue(r.Context(), "user_subject", userSubject)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -738,7 +764,10 @@ func serve() {
 	rp.HandleFunc("/callback", CallbackHandler).Methods("GET")
 
 	// Add middleware
-	n := negroni.Classic() // Includes some default middlewares
+	n := negroni.New()
+	n.Use(negroni.NewRecovery())
+	n.Use(negroni.NewStatic(http.Dir("public")))
+	n.Use(&UserAwareLogger{Logger: log.StandardLogger()})
 	n.UseHandler(AuthMiddleware(rp))
 
 	server := &http.Server{
