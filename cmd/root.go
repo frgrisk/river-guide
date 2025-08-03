@@ -83,10 +83,10 @@ func (l *UserAwareLogger) ServeHTTP(rw http.ResponseWriter, r *http.Request, nex
 	start := time.Now()
 	userInfo := ""
 	if claims := r.Context().Value(userSubjectKey); claims != nil {
-		if claimsMap, ok := claims.(map[string]interface{}); ok && len(claimsMap) > 0 {
+		if claimsMap, ok := claims.(map[string]string); ok && len(claimsMap) > 0 {
 			var parts []string
 			for key, value := range claimsMap {
-				parts = append(parts, fmt.Sprintf("%s=%v", key, value))
+				parts = append(parts, fmt.Sprintf("%s=%s", key, value))
 			}
 			userInfo = fmt.Sprintf(" user=%s", strings.Join(parts, ","))
 		}
@@ -584,12 +584,12 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	// Store essential claims for session management
 	session.Values["user_groups"] = groups
 
-	// Store configurable claims for logging
+	// Store configurable claims for logging (convert to string map for gob serialization)
 	logClaims := viper.GetStringSlice("oidc-log-claims")
-	userLogData := make(map[string]interface{})
+	userLogData := make(map[string]string)
 	for _, claimName := range logClaims {
 		if claimValue, exists := allClaims[claimName]; exists {
-			userLogData[claimName] = claimValue
+			userLogData[claimName] = fmt.Sprintf("%v", claimValue)
 		}
 	}
 	session.Values["user_log_claims"] = userLogData
@@ -683,7 +683,7 @@ func (a *AuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next 
 		}
 	}
 	// Add user info to request context for logging
-	userLogClaims, _ := session.Values["user_log_claims"].(map[string]interface{})
+	userLogClaims, _ := session.Values["user_log_claims"].(map[string]string)
 	ctx := context.WithValue(r.Context(), userSubjectKey, userLogClaims)
 	next(w, r.WithContext(ctx))
 }
