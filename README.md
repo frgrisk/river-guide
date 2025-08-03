@@ -145,6 +145,13 @@ The application accepts several flags:
 - `--primary-color`: primary color for text (default is "#333").
 - `--favicon`: path to favicon (default is embedded favicon).
 - `--rds`: enable support to control RDS instances (default is `false`).
+- `--oidc-issuer`: OIDC issuer URL (optional)
+- `--oidc-client-id`: OIDC client ID (optional)
+- `--oidc-client-secret`: OIDC client secret (optional)
+- `--oidc-redirect-url`: OIDC redirect URL (optional)
+- `--oidc-groups`: comma-separated list of allowed OIDC groups (optional)
+- `--oidc-scopes`: comma-separated list of OIDC scopes to request (optional, defaults to "openid,profile,email" plus "groups" if --oidc-groups is set)
+- `--oidc-log-claims`: comma-separated list of OIDC claims to include in request logs (optional, defaults to "sub")
 
 ### Configuration file
 
@@ -172,6 +179,43 @@ instance, to set the title, you could use the following command:
 
 ```bash
 export RIVER_GUIDE_TITLE="My Custom Title"
+```
+
+### Optional OIDC login
+
+River Guide can optionally protect the UI with an OIDC login. Set the following flags (or their configuration equivalents) to enable authentication:
+
+- `--oidc-issuer`: the OIDC issuer URL
+- `--oidc-client-id`: the client ID registered with the issuer
+- `--oidc-client-secret`: the client secret for the client ID
+- `--oidc-redirect-url`: redirect URL configured for the client
+- `--oidc-groups`: comma-separated list of groups allowed to access the UI (optional)
+- `--oidc-scopes`: comma-separated list of OIDC scopes to request (optional)
+- `--oidc-log-claims`: comma-separated list of OIDC claims to include in request logs (optional)
+
+All four of the issuer, client ID, client secret, and redirect URL must be provided for authentication to be enabled. The redirect URL must exactly match the value configured for your OIDC client.
+
+If `--oidc-groups` is omitted, users from any group are allowed. If `--oidc-scopes` is omitted, the default scopes are "openid,profile,email" (plus "groups" if --oidc-groups is set). You can override the scopes entirely by providing custom values. If `--oidc-log-claims` is omitted, only the "sub" (subject) claim is logged with requests.
+
+Example YAML configuration:
+
+```yaml
+oidc-issuer: https://auth.example.com
+oidc-client-id: my-app
+oidc-client-secret: super-secret
+oidc-redirect-url: https://my-app.example.com/callback
+oidc-groups:
+  - admins
+  - operators
+# Optional: override default scopes
+oidc-scopes:
+  - openid
+  - profile
+  - email
+# Optional: customize claims shown in logs (defaults to sub)
+oidc-log-claims:
+  - email
+  - name
 ```
 
 ## API

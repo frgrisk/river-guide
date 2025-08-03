@@ -23,6 +23,7 @@ package cmd
 
 import (
 	"context"
+	"crypto/rand"
 	_ "embed"
 	"fmt"
 	"html/template"
@@ -34,6 +35,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/google/uuid"
+	"github.com/gorilla/sessions"
+	"golang.org/x/oauth2"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v6"
@@ -48,10 +54,54 @@ import (
 	"github.com/urfave/negroni/v3"
 )
 
+const (
+	sessionKeySize = 32
+	sessionMaxAge  = 86400 // 24 hours
+)
+
+type contextKey string
+
+const userSubjectKey contextKey = "user_subject"
+
 var (
 	cfgFile        string
 	subscriptionID string
+	oidcProvider   *oidc.Provider
+	oidcVerifier   *oidc.IDTokenVerifier
+	oauth2Config   *oauth2.Config
+	sessionStore   *sessions.CookieStore
+	allowedGroups  []string
+	oidcEnabled    bool
 )
+
+// Custom logger that includes user information
+type UserAwareLogger struct {
+	*log.Logger
+}
+
+func (l *UserAwareLogger) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	start := time.Now()
+	userInfo := ""
+	if claims := r.Context().Value(userSubjectKey); claims != nil {
+		if claimsMap, ok := claims.(map[string]string); ok && len(claimsMap) > 0 {
+			var parts []string
+			for key, value := range claimsMap {
+				parts = append(parts, fmt.Sprintf("%s=%s", key, value))
+			}
+			userInfo = fmt.Sprintf(" user=%s", strings.Join(parts, ","))
+		}
+	}
+	next(rw, r)
+	res := rw.(negroni.ResponseWriter)
+	l.Printf("%s %s%s -> %d %s in %v",
+		r.Method,
+		r.URL.RequestURI(),
+		userInfo,
+		res.Status(),
+		http.StatusText(res.Status()),
+		time.Since(start),
+	)
+}
 
 type ServerType string
 
@@ -102,6 +152,13 @@ func init() {
 	rootCmd.Flags().String("resource-group-name", "", "filter instances based on their resource group membership (only used with the Azure provider)")
 	rootCmd.Flags().String("subscription-id", "", "subscription ID (required for Azure)")
 	rootCmd.Flags().Bool("rds", false, "enable RDS support")
+	rootCmd.Flags().String("oidc-issuer", "", "OIDC issuer URL")
+	rootCmd.Flags().String("oidc-client-id", "", "OIDC client ID")
+	rootCmd.Flags().String("oidc-client-secret", "", "OIDC client secret")
+	rootCmd.Flags().String("oidc-redirect-url", "", "OIDC redirect URL")
+	rootCmd.Flags().StringSlice("oidc-groups", []string{}, "allowed OIDC groups")
+	rootCmd.Flags().StringSlice("oidc-scopes", []string{}, "OIDC scopes to request (defaults to openid, profile, email, and groups if --oidc-groups is set)")
+	rootCmd.Flags().StringSlice("oidc-log-claims", []string{"sub"}, "OIDC claims to include in request logs (e.g. sub, email, name)")
 
 	err := viper.BindPFlags(rootCmd.Flags())
 	if err != nil {
@@ -336,6 +393,9 @@ func (a *AzureProvider) PowerOffAll(sb *ServerBank) error {
 //go:embed assets/index.gohtml
 var indexTemplate string
 
+//go:embed assets/landing.gohtml
+var landingTemplate string
+
 // IndexHandler handles the index page.
 func (h *APIHandler) IndexHandler(w http.ResponseWriter, _ *http.Request) {
 	tmpl := template.Must(template.New("index").Parse(indexTemplate))
@@ -371,6 +431,23 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, _ *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+}
+
+// LandingHandler serves the landing page prompting for login.
+func LandingHandler(w http.ResponseWriter, _ *http.Request) {
+	tmpl := template.Must(template.New("landing").Parse(landingTemplate))
+	data := struct {
+		Title        string
+		PrimaryColor string
+		LoginPath    string
+	}{
+		Title:        viper.GetString("title"),
+		PrimaryColor: viper.GetString("primary-color"),
+		LoginPath:    filepath.Join(viper.GetString("path-prefix"), "login"),
+	}
+	if err := tmpl.Execute(w, data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
@@ -415,6 +492,216 @@ func FaviconHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, viper.GetString("favicon"))
 }
 
+func LoginHandler(w http.ResponseWriter, r *http.Request) {
+	if !oidcEnabled {
+		http.Redirect(w, r, viper.GetString("path-prefix"), http.StatusFound)
+		return
+	}
+	state := uuid.NewString()
+	session, err := sessionStore.Get(r, "oidc")
+	if err != nil {
+		clearSessionAndRedirectToLogin(w, r, fmt.Sprintf("LoginHandler: session error: %v", err))
+		return
+	}
+	session.Values["state"] = state
+	if err := session.Save(r, w); err != nil {
+		log.Printf("LoginHandler: failed to save session: %v", err)
+		http.Error(w, fmt.Sprintf("failed to save session: %v", err), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, oauth2Config.AuthCodeURL(state), http.StatusFound)
+}
+
+func CallbackHandler(w http.ResponseWriter, r *http.Request) {
+	if !oidcEnabled {
+		http.Redirect(w, r, viper.GetString("path-prefix"), http.StatusFound)
+		return
+	}
+
+	// Check for OAuth error response
+	if errCode := r.URL.Query().Get("error"); errCode != "" {
+		errDesc := r.URL.Query().Get("error_description")
+		if errDesc == "" {
+			errDesc = "Authentication failed"
+		}
+		errorMsg := fmt.Sprintf("OAuth error: %s - %s", errCode, errDesc)
+		http.Error(w, errorMsg, http.StatusBadRequest)
+		return
+	}
+
+	session, err := sessionStore.Get(r, "oidc")
+	if err != nil {
+		clearSessionAndRedirectToLogin(w, r, fmt.Sprintf("CallbackHandler: session error: %v", err))
+		return
+	}
+	storedState, ok := session.Values["state"].(string)
+	if !ok || r.URL.Query().Get("state") != storedState {
+		http.Error(w, "invalid state", http.StatusBadRequest)
+		return
+	}
+	token, err := oauth2Config.Exchange(r.Context(), r.URL.Query().Get("code"))
+	if err != nil {
+		errorMsg := fmt.Sprintf("Token exchange failed: %v", err)
+		http.Error(w, errorMsg, http.StatusInternalServerError)
+		return
+	}
+	rawIDToken, ok := token.Extra("id_token").(string)
+	if !ok {
+		http.Error(w, "No ID token in response. Check OIDC provider configuration.", http.StatusInternalServerError)
+		return
+	}
+	idToken, err := oidcVerifier.Verify(r.Context(), rawIDToken)
+	if err != nil {
+		errorMsg := fmt.Sprintf("Invalid ID token: %v", err)
+		http.Error(w, errorMsg, http.StatusUnauthorized)
+		return
+	}
+	// Parse all claims into a map for flexible access
+	var allClaims map[string]interface{}
+	if err := idToken.Claims(&allClaims); err != nil {
+		http.Error(w, "failed to parse claims", http.StatusInternalServerError)
+		return
+	}
+
+	// Extract groups for authorization
+	var groups []string
+	if groupsVal, ok := allClaims["groups"]; ok {
+		if groupsSlice, ok := groupsVal.([]interface{}); ok {
+			for _, g := range groupsSlice {
+				if groupStr, ok := g.(string); ok {
+					groups = append(groups, groupStr)
+				}
+			}
+		}
+	}
+
+	if len(allowedGroups) > 0 && !hasAllowedGroup(groups) {
+		errorMsg := fmt.Sprintf("Access denied. User groups %v are not in allowed groups %v", groups, allowedGroups)
+		http.Error(w, errorMsg, http.StatusForbidden)
+		return
+	}
+
+	// Store essential claims for session management
+	session.Values["user_groups"] = groups
+
+	// Store configurable claims for logging as individual session keys (avoids gob map serialization issues)
+	logClaims := viper.GetStringSlice("oidc-log-claims")
+	// Clear any existing claim keys first
+	for key := range session.Values {
+		if keyStr, ok := key.(string); ok && strings.HasPrefix(keyStr, "user_claim_") {
+			delete(session.Values, key)
+		}
+	}
+	// Store each claim as a separate session key
+	for _, claimName := range logClaims {
+		if claimValue, exists := allClaims[claimName]; exists {
+			session.Values["user_claim_"+claimName] = fmt.Sprintf("%v", claimValue)
+		}
+	}
+	session.Values["token_expiry"] = idToken.Expiry.Unix()
+	session.Values["authenticated"] = true
+	delete(session.Values, "state")
+	if err := session.Save(r, w); err != nil {
+		log.Printf("CallbackHandler: failed to save session: %v", err)
+		http.Error(w, fmt.Sprintf("failed to save session: %v", err), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, viper.GetString("path-prefix"), http.StatusFound)
+}
+
+func hasAllowedGroup(groups []string) bool {
+	for _, g := range groups {
+		for _, a := range allowedGroups {
+			if g == a {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// clearSessionAndRedirectToLogin clears the session cookie and redirects to login
+func clearSessionAndRedirectToLogin(w http.ResponseWriter, r *http.Request, logMsg string) {
+	log.Print(logMsg)
+	// Clear the session cookie by setting it to expire immediately
+	pathPrefix := viper.GetString("path-prefix")
+	if pathPrefix == "" {
+		pathPrefix = "/"
+	} else if !strings.HasSuffix(pathPrefix, "/") {
+		pathPrefix += "/"
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oidc",
+		Value:    "",
+		Path:     pathPrefix,
+		MaxAge:   -1,
+		HttpOnly: true,
+	})
+
+	loginPath := strings.TrimSuffix(viper.GetString("path-prefix"), "/") + "/login"
+	http.Redirect(w, r, loginPath, http.StatusFound)
+}
+
+// AuthMiddleware implements negroni.Handler for OIDC authentication
+type AuthMiddleware struct{}
+
+func (a *AuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	if !oidcEnabled {
+		next(w, r)
+		return
+	}
+	pathPrefix := viper.GetString("path-prefix")
+	path := strings.TrimPrefix(r.URL.Path, pathPrefix)
+	path = strings.TrimPrefix(path, "/")
+	if path == "login" || path == "callback" || path == "favicon.ico" || strings.HasPrefix(path, "login") || strings.HasPrefix(path, "callback") {
+		next(w, r)
+		return
+	}
+	session, err := sessionStore.Get(r, "oidc")
+	if err != nil {
+		clearSessionAndRedirectToLogin(w, r, fmt.Sprintf("AuthMiddleware: session error: %v", err))
+		return
+	}
+	authenticated, ok := session.Values["authenticated"].(bool)
+	if !ok || !authenticated {
+		if r.Method == http.MethodGet && (path == "" || path == "/") {
+			LandingHandler(w, r)
+		} else {
+			loginPath := strings.TrimSuffix(pathPrefix, "/") + "/login"
+			http.Redirect(w, r, loginPath, http.StatusFound)
+		}
+		return
+	}
+	expiry, _ := session.Values["token_expiry"].(int64)
+	if expiry > 0 && time.Now().Unix() > expiry {
+		loginPath := strings.TrimSuffix(viper.GetString("path-prefix"), "/") + "/login"
+		http.Redirect(w, r, loginPath, http.StatusFound)
+		return
+	}
+	// Check group authorization if required
+	if len(allowedGroups) > 0 {
+		userGroups, _ := session.Values["user_groups"].([]string)
+		if !hasAllowedGroup(userGroups) {
+			http.Error(w, "Access denied: user is not in an allowed group", http.StatusForbidden)
+			return
+		}
+	}
+	// Add user info to request context for logging
+	// Reconstruct claims map from individual session keys
+	userLogClaims := make(map[string]string)
+	for key, value := range session.Values {
+		if keyStr, ok := key.(string); ok && strings.HasPrefix(keyStr, "user_claim_") {
+			claimName := strings.TrimPrefix(keyStr, "user_claim_")
+			if claimValue, ok := value.(string); ok {
+				userLogClaims[claimName] = claimValue
+			}
+		}
+	}
+	ctx := context.WithValue(r.Context(), userSubjectKey, userLogClaims)
+	next(w, r.WithContext(ctx))
+}
+
 func getVMClient(subscriptionID string) (*armcompute.VirtualMachinesClient, error) {
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
@@ -437,6 +724,66 @@ func serve() {
 	provider := viper.GetString("provider")
 	enableRds := viper.GetBool("rds")
 
+	oidcIssuer := viper.GetString("oidc-issuer")
+	oidcClientID := viper.GetString("oidc-client-id")
+	oidcClientSecret := viper.GetString("oidc-client-secret")
+	oidcRedirectURL := viper.GetString("oidc-redirect-url")
+	allowedGroups = viper.GetStringSlice("oidc-groups")
+	oidcScopes := viper.GetStringSlice("oidc-scopes")
+
+	if oidcIssuer != "" || oidcClientID != "" || oidcClientSecret != "" || oidcRedirectURL != "" {
+		if oidcIssuer == "" || oidcClientID == "" || oidcClientSecret == "" || oidcRedirectURL == "" {
+			log.Fatal("OIDC configuration incomplete: all of issuer, client-id, client-secret, and redirect-url must be provided")
+		}
+		var err error
+		oidcEnabled = true
+		ctx := context.TODO()
+		oidcProvider, err = oidc.NewProvider(ctx, oidcIssuer)
+		if err != nil {
+			log.Fatalf("failed to init oidc provider: %v", err)
+		}
+		oidcVerifier = oidcProvider.Verifier(&oidc.Config{ClientID: oidcClientID})
+
+		// Use custom scopes if provided, otherwise use defaults
+		var scopes []string
+		if len(oidcScopes) > 0 {
+			scopes = oidcScopes
+		} else {
+			scopes = []string{oidc.ScopeOpenID, "profile", "email"}
+			// Only request groups scope if allowed groups are configured
+			if len(allowedGroups) > 0 {
+				scopes = append(scopes, "groups")
+			}
+		}
+
+		oauth2Config = &oauth2.Config{
+			ClientID:     oidcClientID,
+			ClientSecret: oidcClientSecret,
+			Endpoint:     oidcProvider.Endpoint(),
+			RedirectURL:  oidcRedirectURL,
+			Scopes:       scopes,
+		}
+		sessionKey := make([]byte, sessionKeySize)
+		if _, err := rand.Read(sessionKey); err != nil {
+			log.Fatalf("failed to generate session key: %v", err)
+		}
+		sessionStore = sessions.NewCookieStore(sessionKey)
+		pathPrefix := viper.GetString("path-prefix")
+		if pathPrefix == "" {
+			pathPrefix = "/"
+		} else if !strings.HasSuffix(pathPrefix, "/") {
+			pathPrefix += "/"
+		}
+		sessionStore.Options = &sessions.Options{
+			Path:     pathPrefix,
+			MaxAge:   sessionMaxAge,
+			HttpOnly: true,
+			Secure:   strings.HasPrefix(oidcRedirectURL, "https://"),
+			SameSite: http.SameSiteLaxMode,
+		}
+		log.Printf("OIDC session configuration: Path=%s, Secure=%v, MaxAge=%d", pathPrefix, strings.HasPrefix(oidcRedirectURL, "https://"), sessionMaxAge)
+	}
+
 	var cloudProvider CloudProvider
 	switch strings.ToLower(provider) {
 	case "aws":
@@ -446,6 +793,9 @@ func serve() {
 		)
 		if err != nil {
 			log.Fatal(err)
+		}
+		if cfg.Region == "" {
+			log.Fatal("AWS region is required when using AWS provider. Set the AWS_REGION environment variable.")
 		}
 		var rdsClient *rds.Client
 		if enableRds {
@@ -482,9 +832,15 @@ func serve() {
 	rp.HandleFunc("/", apiHandler.IndexHandler).Methods("GET")
 	rp.HandleFunc("/favicon.ico", FaviconHandler).Methods("GET")
 	rp.HandleFunc("/toggle", apiHandler.ToggleHandler).Methods("POST")
+	rp.HandleFunc("/login", LoginHandler).Methods("GET")
+	rp.HandleFunc("/callback", CallbackHandler).Methods("GET")
 
 	// Add middleware
-	n := negroni.Classic() // Includes some default middlewares
+	n := negroni.New()
+	n.Use(negroni.NewRecovery())
+	n.Use(negroni.NewStatic(http.Dir("public")))
+	n.Use(&AuthMiddleware{})                              // Auth runs first to add user context
+	n.Use(&UserAwareLogger{Logger: log.StandardLogger()}) // Logger runs after auth to access user context
 	n.UseHandler(rp)
 
 	server := &http.Server{
