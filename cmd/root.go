@@ -120,6 +120,7 @@ func init() {
 	rootCmd.Flags().String("oidc-client-secret", "", "OIDC client secret")
 	rootCmd.Flags().String("oidc-redirect-url", "", "OIDC redirect URL")
 	rootCmd.Flags().StringSlice("oidc-groups", []string{}, "allowed OIDC groups")
+	rootCmd.Flags().StringSlice("oidc-scopes", []string{}, "OIDC scopes to request (defaults to openid, profile, email, and groups if --oidc-groups is set)")
 
 	err := viper.BindPFlags(rootCmd.Flags())
 	if err != nil {
@@ -630,6 +631,7 @@ func serve() {
 	oidcClientSecret := viper.GetString("oidc-client-secret")
 	oidcRedirectURL := viper.GetString("oidc-redirect-url")
 	allowedGroups = viper.GetStringSlice("oidc-groups")
+	oidcScopes := viper.GetStringSlice("oidc-scopes")
 
 	if oidcIssuer != "" || oidcClientID != "" || oidcClientSecret != "" || oidcRedirectURL != "" {
 		if oidcIssuer == "" || oidcClientID == "" || oidcClientSecret == "" || oidcRedirectURL == "" {
@@ -643,11 +645,19 @@ func serve() {
 			log.Fatalf("failed to init oidc provider: %v", err)
 		}
 		oidcVerifier = oidcProvider.Verifier(&oidc.Config{ClientID: oidcClientID})
-		scopes := []string{oidc.ScopeOpenID, "profile", "email"}
-		// Only request groups scope if allowed groups are configured
-		if len(allowedGroups) > 0 {
-			scopes = append(scopes, "groups")
+		
+		// Use custom scopes if provided, otherwise use defaults
+		var scopes []string
+		if len(oidcScopes) > 0 {
+			scopes = oidcScopes
+		} else {
+			scopes = []string{oidc.ScopeOpenID, "profile", "email"}
+			// Only request groups scope if allowed groups are configured
+			if len(allowedGroups) > 0 {
+				scopes = append(scopes, "groups")
+			}
 		}
+		
 		oauth2Config = &oauth2.Config{
 			ClientID:     oidcClientID,
 			ClientSecret: oidcClientSecret,
