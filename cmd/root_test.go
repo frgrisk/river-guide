@@ -108,7 +108,7 @@ func TestLoginHandler(t *testing.T) {
 
 			viper.Set("path-prefix", "/test/")
 
-			req, _ := http.NewRequest("GET", "/login", nil)
+			req, _ := http.NewRequest("GET", "/login", http.NoBody)
 			rr := httptest.NewRecorder()
 			handler := http.HandlerFunc(LoginHandler)
 
@@ -133,8 +133,8 @@ func TestLoginHandler(t *testing.T) {
 func TestAuthMiddleware(t *testing.T) {
 	tests := []struct {
 		name        string
-		oidcEnabled bool
 		path        string
+		oidcEnabled bool
 		expectNext  bool
 	}{
 		{
@@ -172,11 +172,11 @@ func TestAuthMiddleware(t *testing.T) {
 			viper.Set("path-prefix", "/test/")
 
 			nextCalled := false
-			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 				nextCalled = true
 			})
 
-			req, _ := http.NewRequest("GET", tt.path, nil)
+			req, _ := http.NewRequest("GET", tt.path, http.NoBody)
 			rr := httptest.NewRecorder()
 
 			middleware := AuthMiddleware(next)
@@ -200,9 +200,9 @@ func TestUserAwareLogger(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		userSubject    string
-		expectedInLog  string
+		name          string
+		userSubject   string
+		expectedInLog string
 	}{
 		{
 			name:          "request without user",
@@ -220,14 +220,14 @@ func TestUserAwareLogger(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			logOutput.Reset()
 
-			req, _ := http.NewRequest("GET", "/test", nil)
+			req, _ := http.NewRequest("GET", "/test", http.NoBody)
 			if tt.userSubject != "" {
-				ctx := context.WithValue(req.Context(), "user_subject", tt.userSubject)
+				ctx := context.WithValue(req.Context(), userSubjectKey, tt.userSubject)
 				req = req.WithContext(ctx)
 			}
 
 			rw := negroni.NewResponseWriter(httptest.NewRecorder())
-			next := func(w http.ResponseWriter, r *http.Request) {
+			next := func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(200)
 			}
 
