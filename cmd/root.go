@@ -477,6 +477,18 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, viper.GetString("path-prefix"), http.StatusFound)
 		return
 	}
+	
+	// Check for OAuth error response
+	if errCode := r.URL.Query().Get("error"); errCode != "" {
+		errDesc := r.URL.Query().Get("error_description")
+		if errDesc == "" {
+			errDesc = "Authentication failed"
+		}
+		errorMsg := fmt.Sprintf("OAuth error: %s - %s", errCode, errDesc)
+		http.Error(w, errorMsg, http.StatusBadRequest)
+		return
+	}
+	
 	session, err := sessionStore.Get(r, "oidc")
 	if err != nil {
 		http.Error(w, "session error", http.StatusInternalServerError)
@@ -489,17 +501,19 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	token, err := oauth2Config.Exchange(r.Context(), r.URL.Query().Get("code"))
 	if err != nil {
-		http.Error(w, "token exchange failed", http.StatusInternalServerError)
+		errorMsg := fmt.Sprintf("Token exchange failed: %v", err)
+		http.Error(w, errorMsg, http.StatusInternalServerError)
 		return
 	}
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
-		http.Error(w, "no id token", http.StatusInternalServerError)
+		http.Error(w, "No ID token in response. Check OIDC provider configuration.", http.StatusInternalServerError)
 		return
 	}
 	idToken, err := oidcVerifier.Verify(r.Context(), rawIDToken)
 	if err != nil {
-		http.Error(w, "invalid id token", http.StatusUnauthorized)
+		errorMsg := fmt.Sprintf("Invalid ID token: %v", err)
+		http.Error(w, errorMsg, http.StatusUnauthorized)
 		return
 	}
 	var claims struct {
@@ -510,7 +524,8 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(allowedGroups) > 0 && !hasAllowedGroup(claims.Groups) {
-		http.Error(w, "forbidden", http.StatusForbidden)
+		errorMsg := fmt.Sprintf("Access denied. User groups %v are not in allowed groups %v", claims.Groups, allowedGroups)
+		http.Error(w, errorMsg, http.StatusForbidden)
 		return
 	}
 	session.Values["id_token"] = rawIDToken
@@ -581,7 +596,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		if len(allowedGroups) > 0 && !hasAllowedGroup(claims.Groups) {
-			http.Error(w, "forbidden", http.StatusForbidden)
+			http.Error(w, "Access denied: user is not in an allowed group", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
