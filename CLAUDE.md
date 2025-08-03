@@ -14,9 +14,6 @@ golangci-lint run --fix
 # Build and test
 go build ./...
 go test ./...
-
-# Format code (if needed after golangci-lint --fix)
-go fmt ./...
 ```
 
 ### Key Linting Rules
