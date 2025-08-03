@@ -172,15 +172,15 @@ func TestAuthMiddleware(t *testing.T) {
 			viper.Set("path-prefix", "/test/")
 
 			nextCalled := false
-			next := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+			nextFunc := func(_ http.ResponseWriter, _ *http.Request) {
 				nextCalled = true
-			})
+			}
 
 			req, _ := http.NewRequest("GET", tt.path, http.NoBody)
 			rr := httptest.NewRecorder()
 
-			middleware := AuthMiddleware(next)
-			middleware.ServeHTTP(rr, req)
+			authMiddleware := &AuthMiddleware{}
+			authMiddleware.ServeHTTP(rr, req, nextFunc)
 
 			if nextCalled != tt.expectNext {
 				t.Errorf("next handler called = %v, want %v", nextCalled, tt.expectNext)

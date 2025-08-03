@@ -610,53 +610,54 @@ func clearSessionAndRedirectToLogin(w http.ResponseWriter, r *http.Request, logM
 	http.Redirect(w, r, loginPath, http.StatusFound)
 }
 
-func AuthMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !oidcEnabled {
-			next.ServeHTTP(w, r)
-			return
-		}
-		pathPrefix := viper.GetString("path-prefix")
-		path := strings.TrimPrefix(r.URL.Path, pathPrefix)
-		path = strings.TrimPrefix(path, "/")
-		if path == "login" || path == "callback" || path == "favicon.ico" || strings.HasPrefix(path, "login") || strings.HasPrefix(path, "callback") {
-			next.ServeHTTP(w, r)
-			return
-		}
-		session, err := sessionStore.Get(r, "oidc")
-		if err != nil {
-			clearSessionAndRedirectToLogin(w, r, fmt.Sprintf("AuthMiddleware: session error: %v", err))
-			return
-		}
-		authenticated, ok := session.Values["authenticated"].(bool)
-		if !ok || !authenticated {
-			if r.Method == http.MethodGet && (path == "" || path == "/") {
-				LandingHandler(w, r)
-			} else {
-				loginPath := strings.TrimSuffix(pathPrefix, "/") + "/login"
-				http.Redirect(w, r, loginPath, http.StatusFound)
-			}
-			return
-		}
-		expiry, _ := session.Values["token_expiry"].(int64)
-		if expiry > 0 && time.Now().Unix() > expiry {
-			loginPath := strings.TrimSuffix(viper.GetString("path-prefix"), "/") + "/login"
+// AuthMiddleware implements negroni.Handler for OIDC authentication
+type AuthMiddleware struct{}
+
+func (a *AuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	if !oidcEnabled {
+		next(w, r)
+		return
+	}
+	pathPrefix := viper.GetString("path-prefix")
+	path := strings.TrimPrefix(r.URL.Path, pathPrefix)
+	path = strings.TrimPrefix(path, "/")
+	if path == "login" || path == "callback" || path == "favicon.ico" || strings.HasPrefix(path, "login") || strings.HasPrefix(path, "callback") {
+		next(w, r)
+		return
+	}
+	session, err := sessionStore.Get(r, "oidc")
+	if err != nil {
+		clearSessionAndRedirectToLogin(w, r, fmt.Sprintf("AuthMiddleware: session error: %v", err))
+		return
+	}
+	authenticated, ok := session.Values["authenticated"].(bool)
+	if !ok || !authenticated {
+		if r.Method == http.MethodGet && (path == "" || path == "/") {
+			LandingHandler(w, r)
+		} else {
+			loginPath := strings.TrimSuffix(pathPrefix, "/") + "/login"
 			http.Redirect(w, r, loginPath, http.StatusFound)
+		}
+		return
+	}
+	expiry, _ := session.Values["token_expiry"].(int64)
+	if expiry > 0 && time.Now().Unix() > expiry {
+		loginPath := strings.TrimSuffix(viper.GetString("path-prefix"), "/") + "/login"
+		http.Redirect(w, r, loginPath, http.StatusFound)
+		return
+	}
+	// Check group authorization if required
+	if len(allowedGroups) > 0 {
+		userGroups, _ := session.Values["user_groups"].([]string)
+		if !hasAllowedGroup(userGroups) {
+			http.Error(w, "Access denied: user is not in an allowed group", http.StatusForbidden)
 			return
 		}
-		// Check group authorization if required
-		if len(allowedGroups) > 0 {
-			userGroups, _ := session.Values["user_groups"].([]string)
-			if !hasAllowedGroup(userGroups) {
-				http.Error(w, "Access denied: user is not in an allowed group", http.StatusForbidden)
-				return
-			}
-		}
-		// Add user info to request context for logging
-		userSubject, _ := session.Values["user_subject"].(string)
-		ctx := context.WithValue(r.Context(), userSubjectKey, userSubject)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+	}
+	// Add user info to request context for logging
+	userSubject, _ := session.Values["user_subject"].(string)
+	ctx := context.WithValue(r.Context(), userSubjectKey, userSubject)
+	next(w, r.WithContext(ctx))
 }
 
 func getVMClient(subscriptionID string) (*armcompute.VirtualMachinesClient, error) {
@@ -796,8 +797,9 @@ func serve() {
 	n := negroni.New()
 	n.Use(negroni.NewRecovery())
 	n.Use(negroni.NewStatic(http.Dir("public")))
-	n.Use(&UserAwareLogger{Logger: log.StandardLogger()})
-	n.UseHandler(AuthMiddleware(rp))
+	n.Use(&AuthMiddleware{})                              // Auth runs first to add user context
+	n.Use(&UserAwareLogger{Logger: log.StandardLogger()}) // Logger runs after auth to access user context
+	n.UseHandler(rp)
 
 	server := &http.Server{
 		Addr:              ":" + strconv.Itoa(viper.GetInt("port")),
