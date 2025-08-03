@@ -201,18 +201,23 @@ func TestUserAwareLogger(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		userSubject   string
+		userClaims    map[string]interface{}
 		expectedInLog string
 	}{
 		{
 			name:          "request without user",
-			userSubject:   "",
+			userClaims:    nil,
 			expectedInLog: "GET /test -> 200",
 		},
 		{
-			name:          "request with user",
-			userSubject:   "user123",
-			expectedInLog: "GET /test user=user123 -> 200",
+			name:          "request with single claim",
+			userClaims:    map[string]interface{}{"sub": "user123"},
+			expectedInLog: "GET /test user=sub=user123 -> 200",
+		},
+		{
+			name:          "request with multiple claims",
+			userClaims:    map[string]interface{}{"sub": "user123", "email": "user@example.com", "name": "John Doe"},
+			expectedInLog: "GET /test user=",
 		},
 	}
 
@@ -221,8 +226,8 @@ func TestUserAwareLogger(t *testing.T) {
 			logOutput.Reset()
 
 			req, _ := http.NewRequest("GET", "/test", http.NoBody)
-			if tt.userSubject != "" {
-				ctx := context.WithValue(req.Context(), userSubjectKey, tt.userSubject)
+			if tt.userClaims != nil {
+				ctx := context.WithValue(req.Context(), userSubjectKey, tt.userClaims)
 				req = req.WithContext(ctx)
 			}
 
@@ -234,7 +239,15 @@ func TestUserAwareLogger(t *testing.T) {
 			logger.ServeHTTP(rw, req, next)
 
 			logOutput := logOutput.String()
-			if !strings.Contains(logOutput, tt.expectedInLog) {
+			if tt.name == "request with multiple claims" {
+				// For multiple claims, just check that user= is present and contains expected claims
+				if !strings.Contains(logOutput, "user=") ||
+					!strings.Contains(logOutput, "sub=user123") ||
+					!strings.Contains(logOutput, "email=user@example.com") ||
+					!strings.Contains(logOutput, "name=John Doe") {
+					t.Errorf("Expected log to contain all claims, got %q", logOutput)
+				}
+			} else if !strings.Contains(logOutput, tt.expectedInLog) {
 				t.Errorf("Expected log to contain %q, got %q", tt.expectedInLog, logOutput)
 			}
 		})

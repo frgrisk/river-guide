@@ -81,16 +81,22 @@ type UserAwareLogger struct {
 
 func (l *UserAwareLogger) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	start := time.Now()
-	userSubject := ""
-	if subject := r.Context().Value(userSubjectKey); subject != nil {
-		userSubject = fmt.Sprintf(" user=%s", subject.(string))
+	userInfo := ""
+	if claims := r.Context().Value(userSubjectKey); claims != nil {
+		if claimsMap, ok := claims.(map[string]interface{}); ok && len(claimsMap) > 0 {
+			var parts []string
+			for key, value := range claimsMap {
+				parts = append(parts, fmt.Sprintf("%s=%v", key, value))
+			}
+			userInfo = fmt.Sprintf(" user=%s", strings.Join(parts, ","))
+		}
 	}
 	next(rw, r)
 	res := rw.(negroni.ResponseWriter)
 	l.Printf("%s %s%s -> %d %s in %v",
 		r.Method,
 		r.URL.RequestURI(),
-		userSubject,
+		userInfo,
 		res.Status(),
 		http.StatusText(res.Status()),
 		time.Since(start),
@@ -152,6 +158,7 @@ func init() {
 	rootCmd.Flags().String("oidc-redirect-url", "", "OIDC redirect URL")
 	rootCmd.Flags().StringSlice("oidc-groups", []string{}, "allowed OIDC groups")
 	rootCmd.Flags().StringSlice("oidc-scopes", []string{}, "OIDC scopes to request (defaults to openid, profile, email, and groups if --oidc-groups is set)")
+	rootCmd.Flags().StringSlice("oidc-log-claims", []string{"sub"}, "OIDC claims to include in request logs (e.g. sub, email, name)")
 
 	err := viper.BindPFlags(rootCmd.Flags())
 	if err != nil {
@@ -549,22 +556,43 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, errorMsg, http.StatusUnauthorized)
 		return
 	}
-	var claims struct {
-		Subject string   `json:"sub"`
-		Groups  []string `json:"groups"`
-	}
-	if err := idToken.Claims(&claims); err != nil {
+	// Parse all claims into a map for flexible access
+	var allClaims map[string]interface{}
+	if err := idToken.Claims(&allClaims); err != nil {
 		http.Error(w, "failed to parse claims", http.StatusInternalServerError)
 		return
 	}
-	if len(allowedGroups) > 0 && !hasAllowedGroup(claims.Groups) {
-		errorMsg := fmt.Sprintf("Access denied. User groups %v are not in allowed groups %v", claims.Groups, allowedGroups)
+
+	// Extract groups for authorization
+	var groups []string
+	if groupsVal, ok := allClaims["groups"]; ok {
+		if groupsSlice, ok := groupsVal.([]interface{}); ok {
+			for _, g := range groupsSlice {
+				if groupStr, ok := g.(string); ok {
+					groups = append(groups, groupStr)
+				}
+			}
+		}
+	}
+
+	if len(allowedGroups) > 0 && !hasAllowedGroup(groups) {
+		errorMsg := fmt.Sprintf("Access denied. User groups %v are not in allowed groups %v", groups, allowedGroups)
 		http.Error(w, errorMsg, http.StatusForbidden)
 		return
 	}
-	// Store only essential claims instead of full ID token to avoid cookie size limits
-	session.Values["user_subject"] = claims.Subject
-	session.Values["user_groups"] = claims.Groups
+
+	// Store essential claims for session management
+	session.Values["user_groups"] = groups
+
+	// Store configurable claims for logging
+	logClaims := viper.GetStringSlice("oidc-log-claims")
+	userLogData := make(map[string]interface{})
+	for _, claimName := range logClaims {
+		if claimValue, exists := allClaims[claimName]; exists {
+			userLogData[claimName] = claimValue
+		}
+	}
+	session.Values["user_log_claims"] = userLogData
 	session.Values["token_expiry"] = idToken.Expiry.Unix()
 	session.Values["authenticated"] = true
 	delete(session.Values, "state")
@@ -655,8 +683,8 @@ func (a *AuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next 
 		}
 	}
 	// Add user info to request context for logging
-	userSubject, _ := session.Values["user_subject"].(string)
-	ctx := context.WithValue(r.Context(), userSubjectKey, userSubject)
+	userLogClaims, _ := session.Values["user_log_claims"].(map[string]interface{})
+	ctx := context.WithValue(r.Context(), userSubjectKey, userLogClaims)
 	next(w, r.WithContext(ctx))
 }
 
