@@ -35,6 +35,8 @@ import (
 	"sync"
 	"time"
 
+	"crypto/rand"
+
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/google/uuid"
 	"github.com/gorilla/sessions"
@@ -457,9 +459,16 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state := uuid.NewString()
-	session, _ := sessionStore.Get(r, "oidc")
+	session, err := sessionStore.Get(r, "oidc")
+	if err != nil {
+		http.Error(w, "session error", http.StatusInternalServerError)
+		return
+	}
 	session.Values["state"] = state
-	_ = session.Save(r, w)
+	if err := session.Save(r, w); err != nil {
+		http.Error(w, "failed to save session", http.StatusInternalServerError)
+		return
+	}
 	http.Redirect(w, r, oauth2Config.AuthCodeURL(state), http.StatusFound)
 }
 
@@ -468,8 +477,13 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, viper.GetString("path-prefix"), http.StatusFound)
 		return
 	}
-	session, _ := sessionStore.Get(r, "oidc")
-	if r.URL.Query().Get("state") != session.Values["state"] {
+	session, err := sessionStore.Get(r, "oidc")
+	if err != nil {
+		http.Error(w, "session error", http.StatusInternalServerError)
+		return
+	}
+	storedState, ok := session.Values["state"].(string)
+	if !ok || r.URL.Query().Get("state") != storedState {
 		http.Error(w, "invalid state", http.StatusBadRequest)
 		return
 	}
@@ -491,14 +505,21 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	var claims struct {
 		Groups []string `json:"groups"`
 	}
-	_ = idToken.Claims(&claims)
+	if err := idToken.Claims(&claims); err != nil {
+		http.Error(w, "failed to parse claims", http.StatusInternalServerError)
+		return
+	}
 	if len(allowedGroups) > 0 && !hasAllowedGroup(claims.Groups) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	session.Values["id_token"] = rawIDToken
+	session.Values["token_expiry"] = idToken.Expiry.Unix()
 	delete(session.Values, "state")
-	_ = session.Save(r, w)
+	if err := session.Save(r, w); err != nil {
+		http.Error(w, "failed to save session", http.StatusInternalServerError)
+		return
+	}
 	http.Redirect(w, r, viper.GetString("path-prefix"), http.StatusFound)
 }
 
@@ -519,30 +540,46 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		path := strings.TrimPrefix(r.URL.Path, viper.GetString("path-prefix"))
-		if path == "login" || path == "callback" || path == "favicon.ico" {
+		pathPrefix := viper.GetString("path-prefix")
+		path := strings.TrimPrefix(r.URL.Path, pathPrefix)
+		path = strings.TrimPrefix(path, "/")
+		if path == "login" || path == "callback" || path == "favicon.ico" || strings.HasPrefix(path, "login") || strings.HasPrefix(path, "callback") {
 			next.ServeHTTP(w, r)
 			return
 		}
-		session, _ := sessionStore.Get(r, "oidc")
+		session, err := sessionStore.Get(r, "oidc")
+		if err != nil {
+			http.Redirect(w, r, viper.GetString("path-prefix")+"login", http.StatusFound)
+			return
+		}
 		rawIDToken, ok := session.Values["id_token"].(string)
 		if !ok {
-			if r.Method == http.MethodGet && path == "" {
+			if r.Method == http.MethodGet && (path == "" || path == "/") {
 				LandingHandler(w, r)
 			} else {
-				http.Redirect(w, r, viper.GetString("path-prefix")+"login", http.StatusFound)
+				loginPath := strings.TrimSuffix(pathPrefix, "/") + "/login"
+				http.Redirect(w, r, loginPath, http.StatusFound)
 			}
+			return
+		}
+		expiry, _ := session.Values["token_expiry"].(int64)
+		if expiry > 0 && time.Now().Unix() > expiry {
+			http.Redirect(w, r, viper.GetString("path-prefix")+"login", http.StatusFound)
 			return
 		}
 		idToken, err := oidcVerifier.Verify(r.Context(), rawIDToken)
 		if err != nil {
-			http.Redirect(w, r, viper.GetString("path-prefix")+"login", http.StatusFound)
+			loginPath := strings.TrimSuffix(viper.GetString("path-prefix"), "/") + "/login"
+			http.Redirect(w, r, loginPath, http.StatusFound)
 			return
 		}
 		var claims struct {
 			Groups []string `json:"groups"`
 		}
-		_ = idToken.Claims(&claims)
+		if err := idToken.Claims(&claims); err != nil {
+			http.Error(w, "failed to parse claims", http.StatusInternalServerError)
+			return
+		}
 		if len(allowedGroups) > 0 && !hasAllowedGroup(claims.Groups) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
@@ -579,7 +616,10 @@ func serve() {
 	oidcRedirectURL := viper.GetString("oidc-redirect-url")
 	allowedGroups = viper.GetStringSlice("oidc-groups")
 
-	if oidcIssuer != "" && oidcClientID != "" && oidcClientSecret != "" && oidcRedirectURL != "" {
+	if oidcIssuer != "" || oidcClientID != "" || oidcClientSecret != "" || oidcRedirectURL != "" {
+		if oidcIssuer == "" || oidcClientID == "" || oidcClientSecret == "" || oidcRedirectURL == "" {
+			log.Fatal("OIDC configuration incomplete: all of issuer, client-id, client-secret, and redirect-url must be provided")
+		}
 		var err error
 		oidcEnabled = true
 		ctx := context.TODO()
@@ -593,9 +633,20 @@ func serve() {
 			ClientSecret: oidcClientSecret,
 			Endpoint:     oidcProvider.Endpoint(),
 			RedirectURL:  oidcRedirectURL,
-			Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
+			Scopes:       []string{oidc.ScopeOpenID, "profile", "email", "groups"},
 		}
-		sessionStore = sessions.NewCookieStore([]byte(oidcClientSecret))
+		sessionKey := make([]byte, 32)
+		if _, err := rand.Read(sessionKey); err != nil {
+			log.Fatalf("failed to generate session key: %v", err)
+		}
+		sessionStore = sessions.NewCookieStore(sessionKey)
+		sessionStore.Options = &sessions.Options{
+			Path:     viper.GetString("path-prefix"),
+			MaxAge:   86400, // 24 hours
+			HttpOnly: true,
+			Secure:   strings.HasPrefix(oidcRedirectURL, "https://"),
+			SameSite: http.SameSiteLaxMode,
+		}
 	}
 
 	var cloudProvider CloudProvider
