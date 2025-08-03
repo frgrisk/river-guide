@@ -643,12 +643,17 @@ func serve() {
 			log.Fatalf("failed to init oidc provider: %v", err)
 		}
 		oidcVerifier = oidcProvider.Verifier(&oidc.Config{ClientID: oidcClientID})
+		scopes := []string{oidc.ScopeOpenID, "profile", "email"}
+		// Only request groups scope if allowed groups are configured
+		if len(allowedGroups) > 0 {
+			scopes = append(scopes, "groups")
+		}
 		oauth2Config = &oauth2.Config{
 			ClientID:     oidcClientID,
 			ClientSecret: oidcClientSecret,
 			Endpoint:     oidcProvider.Endpoint(),
 			RedirectURL:  oidcRedirectURL,
-			Scopes:       []string{oidc.ScopeOpenID, "profile", "email", "groups"},
+			Scopes:       scopes,
 		}
 		sessionKey := make([]byte, 32)
 		if _, err := rand.Read(sessionKey); err != nil {
