@@ -143,6 +143,9 @@ The application accepts several flags:
 - `--title`: title to display on the web page (default is "Environment
   Control").
 - `--primary-color`: primary color for text (default is "#333").
+- `--accent-color`: accent color for buttons and highlights (default is "#93C30B" - FRG Lime).
+- `--background-color`: background color for login page (default is "#244A66" - FRG Blue).
+- `--logo`: path to logo image for login page (optional).
 - `--favicon`: path to favicon (default is embedded favicon).
 - `--rds`: enable support to control RDS instances (default is `false`).
 - `--oidc-issuer`: OIDC issuer URL (optional)
@@ -152,6 +155,8 @@ The application accepts several flags:
 - `--oidc-groups`: comma-separated list of allowed OIDC groups (optional)
 - `--oidc-scopes`: comma-separated list of OIDC scopes to request (optional, defaults to "openid,profile,email" plus "groups" if --oidc-groups is set)
 - `--oidc-log-claims`: comma-separated list of OIDC claims to include in request logs (optional, defaults to "sub")
+- `--session-secret`: session secret key (hex-encoded, 64 characters). Required for Lambda/production deployments to ensure session consistency across instances.
+- `--session-max-age`: session cookie lifetime in seconds (default is 86400 = 24 hours).
 
 ### Configuration file
 
@@ -167,7 +172,11 @@ tags:
   Name: dev.example.com
 title: Environment Control
 primary-color: "#333"
+accent-color: "#93C30B" # FRG Lime
+background-color: "#244A66" # FRG Blue
+logo: "/path/to/logo.png" # Optional company logo
 favicon: "/path/to/favicon"
+session-max-age: 86400 # Session lifetime in seconds (24 hours)
 ```
 
 ### Environment variables
@@ -217,6 +226,23 @@ oidc-log-claims:
   - email
   - name
 ```
+
+## Lambda Deployment
+
+For AWS Lambda deployment, you must provide a session secret to ensure session consistency across Lambda instances:
+
+```bash
+# Generate a session secret
+openssl rand -hex 32
+
+# Set as environment variable
+export RIVER_GUIDE_SESSION_SECRET=1a38fb587ba3a0a88d4d9a5081a594f014a263cd49829ba15d75d09e2b234480
+
+# Or pass as flag
+river-guide --session-secret 1a38fb587ba3a0a88d4d9a5081a594f014a263cd49829ba15d75d09e2b234480
+```
+
+**Important**: The session secret must be exactly 64 hex characters (32 bytes). Without a consistent session secret, users will be logged out between Lambda cold starts.
 
 ## API
 

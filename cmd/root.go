@@ -25,6 +25,7 @@ import (
 	"context"
 	"crypto/rand"
 	_ "embed"
+	"encoding/hex"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -55,8 +56,11 @@ import (
 )
 
 const (
-	sessionKeySize = 32
-	sessionMaxAge  = 86400 // 24 hours
+	sessionKeySize       = 32
+	sessionMaxLength     = 65536 // 64KB limit for filesystem sessions
+	maxTotalClaimSize    = 2000  // Reserve space for other session data in CookieStore
+	hexEncodingMultiple  = 2     // Hex encoding doubles the character count
+	defaultSessionMaxAge = 86400 // 24 hours
 )
 
 type contextKey string
@@ -69,7 +73,7 @@ var (
 	oidcProvider   *oidc.Provider
 	oidcVerifier   *oidc.IDTokenVerifier
 	oauth2Config   *oauth2.Config
-	sessionStore   *sessions.CookieStore
+	sessionStore   sessions.Store
 	allowedGroups  []string
 	oidcEnabled    bool
 )
@@ -81,6 +85,20 @@ type UserAwareLogger struct {
 
 func (l *UserAwareLogger) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	start := time.Now()
+
+	// Get source IP address
+	sourceIP := r.RemoteAddr
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		// X-Forwarded-For can contain multiple IPs, take the first one (original client)
+		if idx := strings.Index(forwarded, ","); idx != -1 {
+			sourceIP = strings.TrimSpace(forwarded[:idx])
+		} else {
+			sourceIP = strings.TrimSpace(forwarded)
+		}
+	} else if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+		sourceIP = strings.TrimSpace(realIP)
+	}
+
 	userInfo := ""
 	if claims := r.Context().Value(userSubjectKey); claims != nil {
 		if claimsMap, ok := claims.(map[string]string); ok && len(claimsMap) > 0 {
@@ -93,10 +111,11 @@ func (l *UserAwareLogger) ServeHTTP(rw http.ResponseWriter, r *http.Request, nex
 	}
 	next(rw, r)
 	res := rw.(negroni.ResponseWriter)
-	l.Printf("%s %s%s -> %d %s in %v",
+	l.Printf("%s %s%s from=%s -> %d %s in %v",
 		r.Method,
 		r.URL.RequestURI(),
 		userInfo,
+		sourceIP,
 		res.Status(),
 		http.StatusText(res.Status()),
 		time.Since(start),
@@ -146,6 +165,9 @@ func init() {
 	rootCmd.Flags().StringToStringP("tags", "t", map[string]string{}, "filter instances using tag key-value pairs (e.g. Environment=dev,Name=dev.example.com)")
 	rootCmd.Flags().String("title", "Environment Control", "title to display on the web page")
 	rootCmd.Flags().String("primary-color", "#333", "primary color for text")
+	rootCmd.Flags().String("accent-color", "#93C30B", "accent color for buttons and highlights (default: FRG Lime)")
+	rootCmd.Flags().String("background-color", "#244A66", "background color for login page (default: FRG Blue)")
+	rootCmd.Flags().String("logo", "", "path to logo image for login page")
 	rootCmd.Flags().String("favicon", "", "path to favicon")
 	rootCmd.Flags().Duration("read-header-timeout", defaultReadHeaderTimeout, "timeout for reading the request headers")
 	rootCmd.Flags().String("provider", "aws", "cloud provider (aws or azure)")
@@ -159,6 +181,8 @@ func init() {
 	rootCmd.Flags().StringSlice("oidc-groups", []string{}, "allowed OIDC groups")
 	rootCmd.Flags().StringSlice("oidc-scopes", []string{}, "OIDC scopes to request (defaults to openid, profile, email, and groups if --oidc-groups is set)")
 	rootCmd.Flags().StringSlice("oidc-log-claims", []string{"sub"}, "OIDC claims to include in request logs (e.g. sub, email, name)")
+	rootCmd.Flags().String("session-secret", "", "session secret key (hex-encoded, 64 characters). If not provided, a random key is generated.")
+	rootCmd.Flags().Int("session-max-age", defaultSessionMaxAge, "session cookie lifetime in seconds (default: 86400 = 24 hours)")
 
 	err := viper.BindPFlags(rootCmd.Flags())
 	if err != nil {
@@ -396,29 +420,101 @@ var indexTemplate string
 //go:embed assets/landing.gohtml
 var landingTemplate string
 
+//go:embed assets/error.gohtml
+var errorTemplate string
+
+// ErrorPageData represents data for the error page template
+type ErrorPageData struct {
+	Title            string
+	Subtitle         string
+	Message          string
+	Type             string
+	HomePath         string
+	LogoutPath       string
+	TechnicalDetails string
+	ShowRetry        bool
+	ShowHome         bool
+	ShowLogout       bool
+	ShowContact      bool
+}
+
+// RenderErrorPage renders a user-friendly error page
+func RenderErrorPage(w http.ResponseWriter, r *http.Request, statusCode int, title, subtitle, message string, errorType string) {
+	tmpl := template.Must(template.New("error").Parse(errorTemplate))
+
+	data := ErrorPageData{
+		Title:       title,
+		Subtitle:    subtitle,
+		Message:     message,
+		Type:        errorType,
+		ShowRetry:   true,
+		ShowHome:    true,
+		ShowLogout:  oidcEnabled,
+		ShowContact: true,
+		HomePath:    viper.GetString("path-prefix"),
+		LogoutPath:  filepath.Join(viper.GetString("path-prefix"), "logout"),
+	}
+
+	// Add technical details for debugging
+	if message != "" {
+		data.TechnicalDetails = fmt.Sprintf("Status: %d\nPath: %s\nMethod: %s\nTime: %s\nError: %s",
+			statusCode, r.URL.Path, r.Method, time.Now().Format(time.RFC3339), message)
+	}
+
+	w.WriteHeader(statusCode)
+	if err := tmpl.Execute(w, data); err != nil {
+		// Fallback to simple error if template fails
+		http.Error(w, fmt.Sprintf("%s: %s", title, subtitle), statusCode)
+	}
+}
+
 // IndexHandler handles the index page.
-func (h *APIHandler) IndexHandler(w http.ResponseWriter, _ *http.Request) {
+func (h *APIHandler) IndexHandler(w http.ResponseWriter, r *http.Request) {
 	tmpl := template.Must(template.New("index").Parse(indexTemplate))
 	sb, err := h.GetServerBank(viper.GetStringMapString("tags"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		RenderErrorPage(w, r, http.StatusInternalServerError,
+			"Server Connection Failed",
+			"Unable to retrieve server information from the cloud provider",
+			err.Error(),
+			"error")
 		return
 	}
 
 	type TemplateData struct {
-		Title        string
-		ActionText   string
-		PrimaryColor string
-		TogglePath   string
-		Servers      []*Server
+		Title           string
+		ActionText      string
+		PrimaryColor    string
+		AccentColor     string
+		BackgroundColor string
+		TogglePath      string
+		LogoutPath      string
+		UserEmail       string
+		UserName        string
+		UserSubject     string
+		Servers         []*Server
+		OIDCEnabled     bool
 	}
 
 	data := TemplateData{
-		Title:        viper.GetString("title"),
-		Servers:      sb.Servers,
-		ActionText:   "Pending",
-		PrimaryColor: viper.GetString("primary-color"),
-		TogglePath:   filepath.Join(viper.GetString("path-prefix"), "toggle"),
+		Title:           viper.GetString("title"),
+		Servers:         sb.Servers,
+		ActionText:      "Pending",
+		PrimaryColor:    viper.GetString("primary-color"),
+		AccentColor:     viper.GetString("accent-color"),
+		BackgroundColor: viper.GetString("background-color"),
+		TogglePath:      filepath.Join(viper.GetString("path-prefix"), "toggle"),
+		LogoutPath:      filepath.Join(viper.GetString("path-prefix"), "logout"),
+		OIDCEnabled:     oidcEnabled,
+	}
+
+	// Extract user information from context if available
+	if claims := r.Context().Value(userSubjectKey); claims != nil {
+		if claimsMap, ok := claims.(map[string]string); ok {
+			data.UserEmail = claimsMap["email"]
+			data.UserName = claimsMap["name"]
+			data.UserSubject = claimsMap["sub"]
+		}
 	}
 	status := sb.GetStatus()
 	if status == string(types.InstanceStateNameRunning) {
@@ -438,13 +534,19 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, _ *http.Request) {
 func LandingHandler(w http.ResponseWriter, _ *http.Request) {
 	tmpl := template.Must(template.New("landing").Parse(landingTemplate))
 	data := struct {
-		Title        string
-		PrimaryColor string
-		LoginPath    string
+		Title           string
+		PrimaryColor    string
+		AccentColor     string
+		BackgroundColor string
+		Logo            string
+		LoginPath       string
 	}{
-		Title:        viper.GetString("title"),
-		PrimaryColor: viper.GetString("primary-color"),
-		LoginPath:    filepath.Join(viper.GetString("path-prefix"), "login"),
+		Title:           viper.GetString("title"),
+		PrimaryColor:    viper.GetString("primary-color"),
+		AccentColor:     viper.GetString("accent-color"),
+		BackgroundColor: viper.GetString("background-color"),
+		Logo:            viper.GetString("logo"),
+		LoginPath:       filepath.Join(viper.GetString("path-prefix"), "login"),
 	}
 	if err := tmpl.Execute(w, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -512,6 +614,48 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, oauth2Config.AuthCodeURL(state), http.StatusFound)
 }
 
+func LogoutHandler(w http.ResponseWriter, r *http.Request) {
+	if !oidcEnabled {
+		http.Redirect(w, r, viper.GetString("path-prefix"), http.StatusFound)
+		return
+	}
+
+	// Clear the session
+	session, err := sessionStore.Get(r, "oidc")
+	if err != nil {
+		log.Printf("LogoutHandler: failed to get session: %v", err)
+		// Continue with logout even if session retrieval fails
+	} else {
+		// Clear all session values
+		for key := range session.Values {
+			delete(session.Values, key)
+		}
+		session.Options.MaxAge = -1 // Mark session for deletion
+		if err := session.Save(r, w); err != nil {
+			log.Printf("LogoutHandler: failed to save session: %v", err)
+		}
+	}
+
+	// Clear the session cookie manually as well
+	pathPrefix := viper.GetString("path-prefix")
+	if pathPrefix == "" {
+		pathPrefix = "/"
+	} else if !strings.HasSuffix(pathPrefix, "/") {
+		pathPrefix += "/"
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oidc",
+		Value:    "",
+		Path:     pathPrefix,
+		MaxAge:   -1,
+		HttpOnly: true,
+	})
+
+	log.Printf("User logged out")
+	http.Redirect(w, r, viper.GetString("path-prefix"), http.StatusFound)
+}
+
 func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	if !oidcEnabled {
 		http.Redirect(w, r, viper.GetString("path-prefix"), http.StatusFound)
@@ -525,7 +669,29 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 			errDesc = "Authentication failed"
 		}
 		errorMsg := fmt.Sprintf("OAuth error: %s - %s", errCode, errDesc)
-		http.Error(w, errorMsg, http.StatusBadRequest)
+
+		// Map common OAuth errors to user-friendly messages
+		var title, subtitle string
+		switch errCode {
+		case "access_denied":
+			title = "Authentication Cancelled"
+			subtitle = "You cancelled the login process or denied access"
+		case "invalid_request":
+			title = "Authentication Error"
+			subtitle = "There was a problem with the login request"
+		case "unauthorized_client":
+			title = "Configuration Error"
+			subtitle = "The application is not properly configured for authentication"
+		case "server_error", "temporarily_unavailable":
+			title = "Service Temporarily Unavailable"
+			subtitle = "The authentication service is experiencing issues"
+		default:
+			title = "Authentication Failed"
+			subtitle = "Unable to complete the login process"
+		}
+
+		RenderErrorPage(w, r, http.StatusBadRequest, title, subtitle, errDesc, "warning")
+		log.Printf("OAuth error: %s", errorMsg)
 		return
 	}
 
@@ -576,13 +742,35 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(allowedGroups) > 0 && !hasAllowedGroup(groups) {
-		errorMsg := fmt.Sprintf("Access denied. User groups %v are not in allowed groups %v", groups, allowedGroups)
-		http.Error(w, errorMsg, http.StatusForbidden)
+		errorMsg := fmt.Sprintf("User groups %v are not in allowed groups %v", groups, allowedGroups)
+		RenderErrorPage(w, r, http.StatusForbidden,
+			"Access Denied",
+			"Your account doesn't have permission to access this application",
+			"Please contact your administrator to request access or use a different account.",
+			"warning")
+		log.Printf("Access denied: %s", errorMsg)
 		return
 	}
 
-	// Store essential claims for session management
-	session.Values["user_groups"] = groups
+	// Store authorization result instead of all groups to save session space
+	isAuthorized := len(allowedGroups) == 0 || hasAllowedGroup(groups)
+	log.Printf("User has %d groups, authorized: %v", len(groups), isAuthorized)
+	session.Values["is_authorized"] = isAuthorized
+
+	// Optional: Store only the first matching group for logging (much smaller)
+	if len(allowedGroups) > 0 && isAuthorized {
+		for _, userGroup := range groups {
+			for _, allowedGroup := range allowedGroups {
+				if userGroup == allowedGroup {
+					session.Values["authorized_group"] = allowedGroup
+					break
+				}
+			}
+			if _, exists := session.Values["authorized_group"]; exists {
+				break
+			}
+		}
+	}
 
 	// Store configurable claims for logging as individual session keys (avoids gob map serialization issues)
 	logClaims := viper.GetStringSlice("oidc-log-claims")
@@ -592,15 +780,39 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 			delete(session.Values, key)
 		}
 	}
-	// Store each claim as a separate session key
-	for _, claimName := range logClaims {
-		if claimValue, exists := allClaims[claimName]; exists {
-			session.Values["user_claim_"+claimName] = fmt.Sprintf("%v", claimValue)
+	// Store each claim as a separate session key with size management for CookieStore
+	if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != "" {
+		// Lambda environment - use size management for CookieStore
+		totalClaimSize := 0
+		for _, claimName := range logClaims {
+			claimValue, exists := allClaims[claimName]
+			if !exists {
+				continue
+			}
+			claimStr := fmt.Sprintf("%v", claimValue)
+			claimSize := len("user_claim_"+claimName) + len(claimStr)
+
+			if totalClaimSize+claimSize > maxTotalClaimSize {
+				log.Printf("Warning: Skipping claim '%s' (%d bytes) to keep session under size limit", claimName, claimSize)
+				continue
+			}
+
+			session.Values["user_claim_"+claimName] = claimStr
+			totalClaimSize += claimSize
+		}
+		log.Printf("Stored %d bytes of claims in session", totalClaimSize)
+	} else {
+		// Regular deployment - FilesystemStore can handle larger sessions
+		for _, claimName := range logClaims {
+			if claimValue, exists := allClaims[claimName]; exists {
+				session.Values["user_claim_"+claimName] = fmt.Sprintf("%v", claimValue)
+			}
 		}
 	}
 	session.Values["token_expiry"] = idToken.Expiry.Unix()
 	session.Values["authenticated"] = true
 	delete(session.Values, "state")
+
 	if err := session.Save(r, w); err != nil {
 		log.Printf("CallbackHandler: failed to save session: %v", err)
 		http.Error(w, fmt.Sprintf("failed to save session: %v", err), http.StatusInternalServerError)
@@ -623,7 +835,19 @@ func hasAllowedGroup(groups []string) bool {
 // clearSessionAndRedirectToLogin clears the session cookie and redirects to login
 func clearSessionAndRedirectToLogin(w http.ResponseWriter, r *http.Request, logMsg string) {
 	log.Print(logMsg)
-	// Clear the session cookie by setting it to expire immediately
+
+	// Try to properly clear the session through the store first
+	if session, err := sessionStore.Get(r, "oidc"); err == nil {
+		// Clear all session values
+		for key := range session.Values {
+			delete(session.Values, key)
+		}
+		session.Options.MaxAge = -1
+		// Attempt to save the cleared session (ignore errors since session might be corrupted)
+		_ = session.Save(r, w)
+	}
+
+	// Also clear the session cookie manually as a fallback
 	pathPrefix := viper.GetString("path-prefix")
 	if pathPrefix == "" {
 		pathPrefix = "/"
@@ -637,6 +861,8 @@ func clearSessionAndRedirectToLogin(w http.ResponseWriter, r *http.Request, logM
 		Path:     pathPrefix,
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   strings.Contains(r.Header.Get("X-Forwarded-Proto"), "https") || strings.HasPrefix(r.URL.String(), "https://"),
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	loginPath := strings.TrimSuffix(viper.GetString("path-prefix"), "/") + "/login"
@@ -654,7 +880,7 @@ func (a *AuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next 
 	pathPrefix := viper.GetString("path-prefix")
 	path := strings.TrimPrefix(r.URL.Path, pathPrefix)
 	path = strings.TrimPrefix(path, "/")
-	if path == "login" || path == "callback" || path == "favicon.ico" || strings.HasPrefix(path, "login") || strings.HasPrefix(path, "callback") {
+	if path == "login" || path == "logout" || path == "callback" || path == "favicon.ico" || strings.HasPrefix(path, "login") || strings.HasPrefix(path, "logout") || strings.HasPrefix(path, "callback") {
 		next(w, r)
 		return
 	}
@@ -681,9 +907,13 @@ func (a *AuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next 
 	}
 	// Check group authorization if required
 	if len(allowedGroups) > 0 {
-		userGroups, _ := session.Values["user_groups"].([]string)
-		if !hasAllowedGroup(userGroups) {
-			http.Error(w, "Access denied: user is not in an allowed group", http.StatusForbidden)
+		isAuthorized, _ := session.Values["is_authorized"].(bool)
+		if !isAuthorized {
+			RenderErrorPage(w, r, http.StatusForbidden,
+				"Access Denied",
+				"Your account permissions have changed",
+				"Your group membership no longer allows access to this application. Please logout and login again, or contact your administrator.",
+				"warning")
 			return
 		}
 	}
@@ -763,23 +993,68 @@ func serve() {
 			RedirectURL:  oidcRedirectURL,
 			Scopes:       scopes,
 		}
-		sessionKey := make([]byte, sessionKeySize)
-		if _, err := rand.Read(sessionKey); err != nil {
-			log.Fatalf("failed to generate session key: %v", err)
+		// Use configurable session secret or generate random key
+		var sessionKey []byte
+		sessionSecret := viper.GetString("session-secret")
+		if sessionSecret != "" {
+			// Decode hex-encoded session secret
+			var err error
+			sessionKey, err = hex.DecodeString(sessionSecret)
+			if err != nil {
+				log.Fatalf("failed to decode session secret (must be hex-encoded): %v", err)
+			}
+			if len(sessionKey) != sessionKeySize {
+				log.Fatalf("session secret must be exactly %d bytes (%d hex characters), got %d bytes", sessionKeySize, sessionKeySize*hexEncodingMultiple, len(sessionKey))
+			}
+			log.Printf("Using configured session secret")
+		} else {
+			// Generate random session key for development
+			sessionKey = make([]byte, sessionKeySize)
+			if _, err := rand.Read(sessionKey); err != nil {
+				log.Fatalf("failed to generate session key: %v", err)
+			}
+			log.Printf("Generated random session key (for production, use --session-secret)")
 		}
-		sessionStore = sessions.NewCookieStore(sessionKey)
+		// Use CookieStore for Lambda deployment, FilesystemStore for regular deployment
+		if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != "" {
+			// Lambda environment - use CookieStore
+			sessionStore = sessions.NewCookieStore(sessionKey)
+		} else {
+			// Regular deployment - use FilesystemStore
+			fsStore := sessions.NewFilesystemStore("", sessionKey)
+			fsStore.MaxLength(sessionMaxLength)
+			sessionStore = fsStore
+		}
 		pathPrefix := viper.GetString("path-prefix")
 		if pathPrefix == "" {
 			pathPrefix = "/"
 		} else if !strings.HasSuffix(pathPrefix, "/") {
 			pathPrefix += "/"
 		}
-		sessionStore.Options = &sessions.Options{
-			Path:     pathPrefix,
-			MaxAge:   sessionMaxAge,
-			HttpOnly: true,
-			Secure:   strings.HasPrefix(oidcRedirectURL, "https://"),
-			SameSite: http.SameSiteLaxMode,
+
+		// Get configurable session max age
+		sessionMaxAge := viper.GetInt("session-max-age")
+
+		// Set session options based on store type
+		switch store := sessionStore.(type) {
+		case *sessions.CookieStore:
+			// CookieStore (Lambda)
+			store.Options = &sessions.Options{
+				Path:     pathPrefix,
+				MaxAge:   sessionMaxAge,
+				HttpOnly: true,
+				Secure:   strings.HasPrefix(oidcRedirectURL, "https://"),
+				SameSite: http.SameSiteLaxMode,
+			}
+		case *sessions.FilesystemStore:
+			// FilesystemStore (regular deployment)
+			store.Options = &sessions.Options{
+				Path:     pathPrefix,
+				MaxAge:   sessionMaxAge,
+				HttpOnly: true,
+				Secure:   strings.HasPrefix(oidcRedirectURL, "https://"),
+				SameSite: http.SameSiteLaxMode,
+			}
 		}
 		log.Printf("OIDC session configuration: Path=%s, Secure=%v, MaxAge=%d", pathPrefix, strings.HasPrefix(oidcRedirectURL, "https://"), sessionMaxAge)
 	}
@@ -833,6 +1108,7 @@ func serve() {
 	rp.HandleFunc("/favicon.ico", FaviconHandler).Methods("GET")
 	rp.HandleFunc("/toggle", apiHandler.ToggleHandler).Methods("POST")
 	rp.HandleFunc("/login", LoginHandler).Methods("GET")
+	rp.HandleFunc("/logout", LogoutHandler).Methods("POST")
 	rp.HandleFunc("/callback", CallbackHandler).Methods("GET")
 
 	// Add middleware

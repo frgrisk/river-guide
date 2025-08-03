@@ -114,6 +114,51 @@
 			margin-right: 25%;
 		}
 
+		.header {
+			text-align: center;
+			margin-bottom: 30px;
+		}
+
+		.user-indicator {
+			text-align: center;
+			margin-top: 8px;
+			font-size: 13px;
+			color: #6c757d;
+		}
+
+		.user-text {
+			color: #6c757d;
+		}
+
+		.separator {
+			margin: 0 8px;
+			color: #dee2e6;
+		}
+
+		.sign-out-link {
+			color: #6c757d;
+			text-decoration: none;
+			font-weight: 500;
+			transition: color 0.2s ease;
+		}
+
+		.sign-out-link:hover {
+			color: {{ .PrimaryColor }};
+			text-decoration: underline;
+		}
+
+		/* Responsive behavior for user indicator */
+		@media (max-width: 768px) {
+			.user-indicator {
+				font-size: 12px;
+				margin-top: 6px;
+			}
+			
+			.separator {
+				margin: 0 6px;
+			}
+		}
+
 		@keyframes spin {
 			0% { transform: rotate(0deg); }
 			100% { transform: rotate(360deg); }
@@ -152,12 +197,38 @@
 				border: 16px solid #444;
 				border-top: 16px solid #bbb;
 			}
+			.user-indicator {
+				color: #ccc;
+			}
+			.user-text {
+				color: #ccc;
+			}
+			.separator {
+				color: #666;
+			}
+			.sign-out-link {
+				color: #ccc;
+			}
+			.sign-out-link:hover {
+				color: #fff;
+			}
 		}
 	</style>
 </head>
 <body>
 	<div class="container">
-		<h1>{{ .Title }}</h1>
+		<div class="header">
+			<h1>{{ .Title }}</h1>
+			{{if .OIDCEnabled}}
+			<div class="user-indicator">
+				<span class="user-text">Signed in as 
+					{{if .UserName}}{{ .UserName }}{{else if .UserEmail}}{{ .UserEmail }}{{else if .UserSubject}}{{ .UserSubject }}{{else}}authenticated user{{end}}
+				</span>
+				<span class="separator">•</span>
+				<a href="#" class="sign-out-link" onclick="logout(); return false;">Sign out</a>
+			</div>
+			{{end}}
+		</div>
 		<div class="action-container">
 			<button onclick="toggleServer()">{{.ActionText}}</button>
 			<div id="loading-indicator"></div>
@@ -208,6 +279,18 @@
 		location.reload();
 	  }
 	}
+
+	async function logout() {
+	  try {
+		await fetchFromServer("{{ .LogoutPath }}", "POST");
+		location.reload();
+	  } catch (error) {
+		console.error("Logout error:", error);
+		// Even if logout fails, redirect to home page to clear UI state
+		window.location.href = "/";
+	  }
+	}
+
 </script>
 {{end}}
 </html>

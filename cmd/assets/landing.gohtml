@@ -1,30 +1,226 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;700&display=swap" rel="stylesheet">
-    <title>{{ .Title }}</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <title>{{ .Title }} - Secure Access</title>
     <style>
-        body {
-            font-family: 'IBM Plex Sans', sans-serif;
-            background-color: #f1f1f1;
-            color: {{ .PrimaryColor }};
-            text-align: center;
-            padding-top: 100px;
+        :root {
+            --frg-forest: #004610;
+            --frg-blue: {{ .BackgroundColor }};
+            --frg-mint: #DBEAE5;
+            --frg-light-gray: #F5F5F5;
+            --frg-dark-gray: #4B4B4B;
+            --frg-white: #FFFFFF;
+            --frg-lime: {{ .AccentColor }};
+            --frg-magenta: #BD368D;
+            
+            --primary-bg: linear-gradient(135deg, var(--frg-blue) 0%, var(--frg-forest) 100%);
+            --card-bg: var(--frg-white);
+            --card-shadow: 0 20px 40px rgba(36, 74, 102, 0.1);
+            --accent-color: var(--frg-lime);
+            --text-primary: var(--frg-dark-gray);
+            --text-secondary: #6B7280;
+            --border-color: #E5E7EB;
         }
-        a.button {
-            display: inline-block;
-            padding: 10px 20px;
-            background-color: {{ .PrimaryColor }};
-            color: #fff;
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--primary-bg);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        /* Subtle geometric background */
+        .bg-pattern {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                radial-gradient(circle at 25% 25%, rgba(255, 255, 255, 0.05) 0%, transparent 50%),
+                radial-gradient(circle at 75% 75%, rgba(255, 255, 255, 0.05) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Main container */
+        .login-container {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 3rem 2.5rem;
+            min-width: 480px;
+            max-width: 520px;
+            box-shadow: var(--card-shadow);
+            position: relative;
+            z-index: 1;
+            border: 1px solid var(--border-color);
+        }
+
+        /* Header section */
+        .header-section {
+            text-align: center;
+            margin-bottom: 2.5rem;
+            padding-bottom: 2rem;
+            border-bottom: 1px solid #F3F4F6;
+        }
+
+        .company-logo-img {
+            margin: 0 auto 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logo-image {
+            max-width: 120px;
+            max-height: 80px;
+            width: auto;
+            height: auto;
+        }
+
+        .title {
+            font-size: 1.875rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.025em;
+        }
+
+        .subtitle {
+            font-size: 1rem;
+            color: var(--text-secondary);
+            font-weight: 400;
+            line-height: 1.5;
+        }
+
+        /* Content section */
+        .content-section {
+            text-align: center;
+        }
+
+        .login-heading {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.75rem;
+        }
+
+        .login-description {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+            line-height: 1.6;
+        }
+
+        .login-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            width: 100%;
+            padding: 0.875rem 1.5rem;
+            background: linear-gradient(135deg, var(--frg-lime) 0%, #82B309 100%);
+            color: var(--frg-white);
             text-decoration: none;
-            border-radius: 4px;
-            font-weight: bold;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1rem;
+            transition: all 0.2s ease;
+            border: none;
+            box-shadow: 0 4px 12px rgba(147, 195, 11, 0.2);
+        }
+
+        .login-button:hover {
+            background: linear-gradient(135deg, #82B309 0%, var(--frg-forest) 100%);
+            box-shadow: 0 6px 16px rgba(147, 195, 11, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .login-button:active {
+            transform: translateY(0);
+        }
+
+        .login-icon {
+            font-size: 1.1rem;
+        }
+
+
+        /* Footer */
+        .login-footer {
+            margin-top: 2rem;
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        /* Responsive design */
+        @media (max-width: 640px) {
+            .login-container {
+                min-width: auto;
+                width: 90vw;
+                margin: 1rem;
+                padding: 2rem 1.5rem;
+            }
+
+            .title {
+                font-size: 1.5rem;
+            }
+
+        }
+
+        /* Dark mode support */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --card-bg: #1F2937;
+                --text-primary: #F9FAFB;
+                --text-secondary: #D1D5DB;
+                --border-color: #374151;
+            }
+
         }
     </style>
 </head>
 <body>
-    <h1>{{ .Title }}</h1>
-    <p>You need to log in to continue.</p>
-    <a href="{{ .LoginPath }}" class="button">Log in</a>
+    <div class="bg-pattern"></div>
+
+    <div class="login-container">
+        <div class="header-section">
+            {{if .Logo}}
+            <div class="company-logo-img">
+                <img src="{{ .Logo }}" alt="Company Logo" class="logo-image">
+            </div>
+            {{end}}
+            <h1 class="title">{{ .Title }}</h1>
+        </div>
+
+        <div class="content-section">
+            <h2 class="login-heading">Secure Access Required</h2>
+            <p class="login-description">
+                Please authenticate with your corporate credentials to access the management console.
+            </p>
+            
+            <a href="{{ .LoginPath }}" class="login-button">
+                <span class="login-icon">🔐</span>
+                <span>Sign In with SSO</span>
+            </a>
+        </div>
+
+
+        <div class="login-footer">
+            Authorized personnel only. All access is monitored and logged.
+        </div>
+    </div>
 </body>
 </html>

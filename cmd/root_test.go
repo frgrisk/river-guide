@@ -209,12 +209,12 @@ func TestUserAwareLogger(t *testing.T) {
 		{
 			name:          "request without user",
 			userClaims:    nil,
-			expectedInLog: "GET /test -> 200",
+			expectedInLog: "GET /test from= -> 200",
 		},
 		{
 			name:          "request with single claim",
 			userClaims:    map[string]string{"sub": "user123"},
-			expectedInLog: "GET /test user=sub=user123 -> 200",
+			expectedInLog: "GET /test user=sub=user123 from= -> 200",
 		},
 		{
 			name:          "request with multiple claims",

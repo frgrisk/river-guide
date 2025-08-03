@@ -47,11 +47,12 @@ go test ./...
 
 ### Session Management
 
+- Uses FilesystemStore for session storage to handle larger session data (64KB limit vs 4KB cookie limit)
 - Session cookies should be HttpOnly, Secure (for HTTPS), SameSite=Lax
-- Store only: `user_groups`, `token_expiry`, `authenticated` flag, and individual claim keys
-- Never store full ID tokens in sessions (too large)
+- Store: `user_groups`, `token_expiry`, `authenticated` flag, and individual claim keys
 - Store claims as individual session keys (e.g., `user_claim_sub`, `user_claim_email`) to avoid gob serialization issues with maps
 - Clear corrupted sessions and redirect to login
+- Session files are stored temporarily on filesystem and automatically cleaned up
 
 ### Configuration
 
@@ -147,8 +148,9 @@ Define constants for magic numbers:
 
 ```go
 const (
-    sessionKeySize = 32
-    sessionMaxAge  = 86400 // 24 hours
+    sessionKeySize   = 32
+    sessionMaxAge    = 86400 // 24 hours
+    sessionMaxLength = 65536 // 64KB limit for filesystem sessions
 )
 ```
 
