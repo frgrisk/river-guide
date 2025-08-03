@@ -521,7 +521,8 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var claims struct {
-		Groups []string `json:"groups"`
+		Subject string   `json:"sub"`
+		Groups  []string `json:"groups"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
 		http.Error(w, "failed to parse claims", http.StatusInternalServerError)
@@ -532,8 +533,11 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, errorMsg, http.StatusForbidden)
 		return
 	}
-	session.Values["id_token"] = rawIDToken
+	// Store only essential claims instead of full ID token to avoid cookie size limits
+	session.Values["user_subject"] = claims.Subject
+	session.Values["user_groups"] = claims.Groups
 	session.Values["token_expiry"] = idToken.Expiry.Unix()
+	session.Values["authenticated"] = true
 	delete(session.Values, "state")
 	if err := session.Save(r, w); err != nil {
 		log.Printf("CallbackHandler: failed to save session: %v", err)
@@ -572,8 +576,8 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			http.Redirect(w, r, viper.GetString("path-prefix")+"login", http.StatusFound)
 			return
 		}
-		rawIDToken, ok := session.Values["id_token"].(string)
-		if !ok {
+		authenticated, ok := session.Values["authenticated"].(bool)
+		if !ok || !authenticated {
 			if r.Method == http.MethodGet && (path == "" || path == "/") {
 				LandingHandler(w, r)
 			} else {
@@ -584,25 +588,17 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		}
 		expiry, _ := session.Values["token_expiry"].(int64)
 		if expiry > 0 && time.Now().Unix() > expiry {
-			http.Redirect(w, r, viper.GetString("path-prefix")+"login", http.StatusFound)
-			return
-		}
-		idToken, err := oidcVerifier.Verify(r.Context(), rawIDToken)
-		if err != nil {
 			loginPath := strings.TrimSuffix(viper.GetString("path-prefix"), "/") + "/login"
 			http.Redirect(w, r, loginPath, http.StatusFound)
 			return
 		}
-		var claims struct {
-			Groups []string `json:"groups"`
-		}
-		if err := idToken.Claims(&claims); err != nil {
-			http.Error(w, "failed to parse claims", http.StatusInternalServerError)
-			return
-		}
-		if len(allowedGroups) > 0 && !hasAllowedGroup(claims.Groups) {
-			http.Error(w, "Access denied: user is not in an allowed group", http.StatusForbidden)
-			return
+		// Check group authorization if required
+		if len(allowedGroups) > 0 {
+			userGroups, _ := session.Values["user_groups"].([]string)
+			if !hasAllowedGroup(userGroups) {
+				http.Error(w, "Access denied: user is not in an allowed group", http.StatusForbidden)
+				return
+			}
 		}
 		next.ServeHTTP(w, r)
 	})
