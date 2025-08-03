@@ -150,6 +150,7 @@ The application accepts several flags:
 - `--oidc-client-secret`: OIDC client secret (optional)
 - `--oidc-redirect-url`: OIDC redirect URL (optional)
 - `--oidc-groups`: comma-separated list of allowed OIDC groups (optional)
+- `--oidc-scopes`: comma-separated list of OIDC scopes to request (optional, defaults to "openid,profile,email" plus "groups" if --oidc-groups is set)
 
 ### Configuration file
 
@@ -188,8 +189,11 @@ River Guide can optionally protect the UI with an OIDC login. Set the following 
 - `--oidc-client-secret`: the client secret for the client ID
 - `--oidc-redirect-url`: redirect URL configured for the client
 - `--oidc-groups`: comma-separated list of groups allowed to access the UI (optional)
+- `--oidc-scopes`: comma-separated list of OIDC scopes to request (optional)
 
-All four of the issuer, client ID, client secret, and redirect URL must be provided for authentication to be enabled. The redirect URL must exactly match the value configured for your OIDC client. If `--oidc-groups` is omitted, users from any group are allowed.
+All four of the issuer, client ID, client secret, and redirect URL must be provided for authentication to be enabled. The redirect URL must exactly match the value configured for your OIDC client. 
+
+If `--oidc-groups` is omitted, users from any group are allowed. If `--oidc-scopes` is omitted, the default scopes are "openid,profile,email" (plus "groups" if --oidc-groups is set). You can override the scopes entirely by providing custom values.
 
 Example YAML configuration:
 
@@ -201,6 +205,11 @@ oidc-redirect-url: https://my-app.example.com/callback
 oidc-groups:
   - admins
   - operators
+# Optional: override default scopes
+oidc-scopes:
+  - openid
+  - profile
+  - email
 ```
 
 ## API
