@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
+	"encoding/gob"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -201,7 +203,7 @@ func TestUserAwareLogger(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		userClaims    map[string]interface{}
+		userClaims    map[string]string
 		expectedInLog string
 	}{
 		{
@@ -211,12 +213,12 @@ func TestUserAwareLogger(t *testing.T) {
 		},
 		{
 			name:          "request with single claim",
-			userClaims:    map[string]interface{}{"sub": "user123"},
+			userClaims:    map[string]string{"sub": "user123"},
 			expectedInLog: "GET /test user=sub=user123 -> 200",
 		},
 		{
 			name:          "request with multiple claims",
-			userClaims:    map[string]interface{}{"sub": "user123", "email": "user@example.com", "name": "John Doe"},
+			userClaims:    map[string]string{"sub": "user123", "email": "user@example.com", "name": "John Doe"},
 			expectedInLog: "GET /test user=",
 		},
 	}
@@ -251,5 +253,45 @@ func TestUserAwareLogger(t *testing.T) {
 				t.Errorf("Expected log to contain %q, got %q", tt.expectedInLog, logOutput)
 			}
 		})
+	}
+}
+
+func TestSessionClaimsSerialization(t *testing.T) {
+	// Test that map[string]string can be serialized/deserialized by gob
+	// This is what gorilla/sessions uses internally
+
+	testClaims := map[string]string{
+		"sub":   "user123",
+		"email": "user@example.com",
+		"name":  "John Doe",
+	}
+
+	// Test gob encoding (what sessions does)
+	var buf bytes.Buffer
+	encoder := gob.NewEncoder(&buf)
+	err := encoder.Encode(testClaims)
+	if err != nil {
+		t.Fatalf("Failed to encode claims: %v", err)
+	}
+
+	// Test gob decoding
+	var decoded map[string]string
+	decoder := gob.NewDecoder(&buf)
+	err = decoder.Decode(&decoded)
+	if err != nil {
+		t.Fatalf("Failed to decode claims: %v", err)
+	}
+
+	// Verify data integrity
+	if len(decoded) != len(testClaims) {
+		t.Errorf("Decoded map has wrong length: got %d, want %d", len(decoded), len(testClaims))
+	}
+
+	for key, expectedValue := range testClaims {
+		if actualValue, exists := decoded[key]; !exists {
+			t.Errorf("Missing key %q in decoded map", key)
+		} else if actualValue != expectedValue {
+			t.Errorf("Wrong value for key %q: got %q, want %q", key, actualValue, expectedValue)
+		}
 	}
 }
