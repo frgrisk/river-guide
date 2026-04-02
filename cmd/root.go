@@ -645,6 +645,8 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 		Path:     pathPrefix,
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   strings.HasPrefix(viper.GetString("oidc-redirect-url"), "https://"),
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	log.Printf("User logged out")
