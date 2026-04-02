@@ -27,6 +27,8 @@ go test ./...
 - Mark unused parameters with `_` prefix
 - Follow struct field alignment recommendations
 - Always run `npx prettier --write` on modified files
+- For `.gohtml` files, use `--parser html`: `npx prettier --write --parser html file.gohtml`
+- Prettier will fail on `.gohtml` files with Go template conditionals (e.g., `{{if eq .X "Y"}}`) inside HTML attributes — this is expected, skip prettier for those files
 
 ### Testing Requirements
 
@@ -113,7 +115,7 @@ next.ServeHTTP(w, r.WithContext(ctx))
 ### Git Practices
 
 - Write descriptive commit messages
-- Include "Co-Authored-By: Claude <noreply@anthropic.com>" in commits (though the user's config overrides this)
+- Do not include Co-Authored-By lines in commits
 - Group related changes into single commits
 - Test functionality before pushing
 
@@ -132,6 +134,14 @@ next.ServeHTTP(w, r.WithContext(ctx))
 3. UserAwareLogger (custom request logging)
 4. AuthMiddleware (OIDC authentication)
 5. Router (gorilla/mux)
+
+### Templates
+
+- All HTML templates (`cmd/assets/*.gohtml`) are embedded via `go:embed` and must be self-contained
+- Templates use Syne (heading) + Outfit (body) fonts from Google Fonts
+- UI uses configurable `--accent-color` and `--background-color` (no `--primary-color`)
+- To test without OIDC auth, run without OIDC flags to access the dashboard directly
+- Use `agent-browser` (not Playwright MCP) for visual testing: `agent-browser open <url> && agent-browser screenshot page.png`
 
 ### Security Considerations
 
