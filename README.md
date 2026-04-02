@@ -13,7 +13,9 @@ also supports tag-based filtering of instances, enabling you to only display
 instances of interest. Configuration can be provided through command line
 flags, a configuration file, or environment variables.
 
-![Screenshot 2024-04-03 at 15.36.33.png](cmd/assets/screenshot.png)
+![Login page](cmd/assets/screenshot-landing.png)
+
+![Dashboard](cmd/assets/screenshot.png)
 
 ## Installation
 
