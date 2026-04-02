@@ -29,3 +29,7 @@ node_modules/
 
 dist/
 
+# Claude Code - ignore local/user-specific files only
+.claude/*.local.*
+.claude/todos/
+.claude/worktrees/
