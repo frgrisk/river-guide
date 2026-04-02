@@ -102,7 +102,7 @@ func (l *UserAwareLogger) ServeHTTP(rw http.ResponseWriter, r *http.Request, nex
 	userInfo := ""
 	if claims := r.Context().Value(userSubjectKey); claims != nil {
 		if claimsMap, ok := claims.(map[string]string); ok && len(claimsMap) > 0 {
-			var parts []string
+			parts := make([]string, 0, len(claimsMap))
 			for key, value := range claimsMap {
 				parts = append(parts, fmt.Sprintf("%s=%s", key, value))
 			}
