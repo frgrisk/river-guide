@@ -431,6 +431,8 @@ type ErrorPageData struct {
 	HomePath         string
 	LogoutPath       string
 	TechnicalDetails string
+	AccentColor      string
+	BackgroundColor  string
 	ShowRetry        bool
 	ShowHome         bool
 	ShowLogout       bool
@@ -442,16 +444,18 @@ func RenderErrorPage(w http.ResponseWriter, r *http.Request, statusCode int, tit
 	tmpl := template.Must(template.New("error").Parse(errorTemplate))
 
 	data := ErrorPageData{
-		Title:       title,
-		Subtitle:    subtitle,
-		Message:     message,
-		Type:        errorType,
-		ShowRetry:   true,
-		ShowHome:    true,
-		ShowLogout:  oidcEnabled,
-		ShowContact: true,
-		HomePath:    viper.GetString("path-prefix"),
-		LogoutPath:  path.Join(viper.GetString("path-prefix"), "logout"),
+		Title:           title,
+		Subtitle:        subtitle,
+		Message:         message,
+		Type:            errorType,
+		ShowRetry:       true,
+		ShowHome:        true,
+		ShowLogout:      oidcEnabled,
+		ShowContact:     true,
+		HomePath:        viper.GetString("path-prefix"),
+		LogoutPath:      path.Join(viper.GetString("path-prefix"), "logout"),
+		AccentColor:     viper.GetString("accent-color"),
+		BackgroundColor: viper.GetString("background-color"),
 	}
 
 	// Add technical details for debugging
