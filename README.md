@@ -142,9 +142,8 @@ The application accepts several flags:
   `Environment=dev,Name=dev.example.com`).
 - `--title`: title to display on the web page (default is "Environment
   Control").
-- `--primary-color`: primary color for text (default is "#333").
-- `--accent-color`: accent color for buttons and highlights (default is "#93C30B" - FRG Lime).
-- `--background-color`: background color for login page (default is "#244A66" - FRG Blue).
+- `--accent-color`: accent color for buttons and highlights (default is "#93C30B").
+- `--background-color`: background color (default is "#244A66").
 - `--logo`: path to logo image for login page (optional).
 - `--favicon`: path to favicon (default is embedded favicon).
 - `--rds`: enable support to control RDS instances (default is `false`).
@@ -171,9 +170,8 @@ tags:
   Environment: dev
   Name: dev.example.com
 title: Environment Control
-primary-color: "#333"
-accent-color: "#93C30B" # FRG Lime
-background-color: "#244A66" # FRG Blue
+accent-color: "#93C30B"
+background-color: "#244A66"
 logo: "/path/to/logo.png" # Optional company logo
 favicon: "/path/to/favicon"
 session-max-age: 86400 # Session lifetime in seconds (24 hours)

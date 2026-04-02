@@ -164,9 +164,8 @@ func init() {
 	rootCmd.Flags().String("path-prefix", "/", "prefix to serve the web interface on")
 	rootCmd.Flags().StringToStringP("tags", "t", map[string]string{}, "filter instances using tag key-value pairs (e.g. Environment=dev,Name=dev.example.com)")
 	rootCmd.Flags().String("title", "Environment Control", "title to display on the web page")
-	rootCmd.Flags().String("primary-color", "#333", "primary color for text")
-	rootCmd.Flags().String("accent-color", "#93C30B", "accent color for buttons and highlights (default: FRG Lime)")
-	rootCmd.Flags().String("background-color", "#244A66", "background color for login page (default: FRG Blue)")
+	rootCmd.Flags().String("accent-color", "#93C30B", "accent color for buttons and highlights")
+	rootCmd.Flags().String("background-color", "#244A66", "background color")
 	rootCmd.Flags().String("logo", "", "path to logo image for login page")
 	rootCmd.Flags().String("favicon", "", "path to favicon")
 	rootCmd.Flags().Duration("read-header-timeout", defaultReadHeaderTimeout, "timeout for reading the request headers")
@@ -484,7 +483,6 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, r *http.Request) {
 	type TemplateData struct {
 		Title           string
 		ActionText      string
-		PrimaryColor    string
 		AccentColor     string
 		BackgroundColor string
 		TogglePath      string
@@ -500,7 +498,6 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, r *http.Request) {
 		Title:           viper.GetString("title"),
 		Servers:         sb.Servers,
 		ActionText:      "Pending",
-		PrimaryColor:    viper.GetString("primary-color"),
 		AccentColor:     viper.GetString("accent-color"),
 		BackgroundColor: viper.GetString("background-color"),
 		TogglePath:      filepath.Join(viper.GetString("path-prefix"), "toggle"),
@@ -535,14 +532,12 @@ func LandingHandler(w http.ResponseWriter, _ *http.Request) {
 	tmpl := template.Must(template.New("landing").Parse(landingTemplate))
 	data := struct {
 		Title           string
-		PrimaryColor    string
 		AccentColor     string
 		BackgroundColor string
 		Logo            string
 		LoginPath       string
 	}{
 		Title:           viper.GetString("title"),
-		PrimaryColor:    viper.GetString("primary-color"),
 		AccentColor:     viper.GetString("accent-color"),
 		BackgroundColor: viper.GetString("background-color"),
 		Logo:            viper.GetString("logo"),
