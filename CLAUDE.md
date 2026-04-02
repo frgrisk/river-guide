@@ -49,12 +49,12 @@ go test ./...
 
 ### Session Management
 
-- Uses FilesystemStore for session storage to handle larger session data (64KB limit vs 4KB cookie limit)
+- Uses CookieStore for session storage (signed/encrypted cookies, no server-side files)
+- Lambda requires `--session-secret` (fails fast if missing); non-Lambda generates a random key if not provided
 - Session cookies should be HttpOnly, Secure (for HTTPS), SameSite=Lax
-- Store: `user_groups`, `token_expiry`, `authenticated` flag, and individual claim keys
+- Store: `authenticated` flag, `is_authorized`, `authorized_group`, `token_expiry`, and individual claim keys
 - Store claims as individual session keys (e.g., `user_claim_sub`, `user_claim_email`) to avoid gob serialization issues with maps
 - Clear corrupted sessions and redirect to login
-- Session files are stored temporarily on filesystem and automatically cleaned up
 
 ### Configuration
 
@@ -94,12 +94,19 @@ The application includes user identification in request logs:
 
 ### Context Usage
 
-Add user info to request context for logging:
+Add user info to request context for logging (reconstructs claims map from individual session keys):
 
 ```go
-userSubject, _ := session.Values["user_subject"].(string)
-ctx := context.WithValue(r.Context(), userSubjectKey, userSubject)
-next.ServeHTTP(w, r.WithContext(ctx))
+userLogClaims := make(map[string]string)
+for key, value := range session.Values {
+    if keyStr, ok := key.(string); ok && strings.HasPrefix(keyStr, "user_claim_") {
+        claimName := strings.TrimPrefix(keyStr, "user_claim_")
+        if claimValue, ok := value.(string); ok {
+            userLogClaims[claimName] = claimValue
+        }
+    }
+}
+ctx := context.WithValue(r.Context(), userSubjectKey, userLogClaims)
 ```
 
 ## Development Workflow

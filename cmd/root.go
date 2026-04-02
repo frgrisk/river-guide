@@ -166,7 +166,7 @@ func init() {
 	rootCmd.Flags().String("title", "Environment Control", "title to display on the web page")
 	rootCmd.Flags().String("accent-color", "#93C30B", "accent color for buttons and highlights")
 	rootCmd.Flags().String("background-color", "#244A66", "background color")
-	rootCmd.Flags().String("logo", "", "path to logo image for login page")
+	rootCmd.Flags().String("logo", "", "URL for logo image on login page (used as img src, not read from disk)")
 	rootCmd.Flags().String("favicon", "", "path to favicon")
 	rootCmd.Flags().Duration("read-header-timeout", defaultReadHeaderTimeout, "timeout for reading the request headers")
 	rootCmd.Flags().String("provider", "aws", "cloud provider (aws or azure)")
@@ -607,8 +607,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	session.Values["state"] = state
 	if err := session.Save(r, w); err != nil {
-		log.Printf("LoginHandler: failed to save session: %v", err)
-		http.Error(w, fmt.Sprintf("failed to save session: %v", err), http.StatusInternalServerError)
+		clearSessionAndRedirectToLogin(w, r, fmt.Sprintf("LoginHandler: failed to save session: %v", err))
 		return
 	}
 	http.Redirect(w, r, oauth2Config.AuthCodeURL(state), http.StatusFound)
@@ -715,13 +714,13 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
-		http.Error(w, "No ID token in response. Check OIDC provider configuration.", http.StatusInternalServerError)
+		clearSessionAndRedirectToLogin(w, r, "CallbackHandler: no id_token in token response")
 		return
 	}
 	idToken, err := oidcVerifier.Verify(r.Context(), rawIDToken)
 	if err != nil {
-		errorMsg := fmt.Sprintf("Invalid ID token: %v", err)
-		http.Error(w, errorMsg, http.StatusUnauthorized)
+		log.Printf("CallbackHandler: invalid ID token: %v", err)
+		clearSessionAndRedirectToLogin(w, r, "CallbackHandler: authentication failed")
 		return
 	}
 	// Parse all claims into a map for flexible access
@@ -863,7 +862,7 @@ func clearSessionAndRedirectToLogin(w http.ResponseWriter, r *http.Request, logM
 		Path:     pathPrefix,
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   r.TLS != nil || strings.Contains(r.Header.Get("X-Forwarded-Proto"), "https"),
+		Secure:   r.TLS != nil || strings.Contains(strings.ToLower(r.Header.Get("X-Forwarded-Proto")), "https"),
 		SameSite: http.SameSiteLaxMode,
 	})
 

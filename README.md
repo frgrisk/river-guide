@@ -144,7 +144,7 @@ The application accepts several flags:
   Control").
 - `--accent-color`: accent color for buttons and highlights (default is "#93C30B").
 - `--background-color`: background color (default is "#244A66").
-- `--logo`: path to logo image for login page (optional).
+- `--logo`: URL for logo image on login page (used as `<img src>`, not read from disk) (optional).
 - `--favicon`: path to favicon (default is embedded favicon).
 - `--rds`: enable support to control RDS instances (default is `false`).
 - `--oidc-issuer`: OIDC issuer URL (optional)
