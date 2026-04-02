@@ -30,7 +30,7 @@ import (
 	"html/template"
 	"net/http"
 	"os"
-	"path/filepath"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -451,7 +451,7 @@ func RenderErrorPage(w http.ResponseWriter, r *http.Request, statusCode int, tit
 		ShowLogout:  oidcEnabled,
 		ShowContact: true,
 		HomePath:    viper.GetString("path-prefix"),
-		LogoutPath:  filepath.Join(viper.GetString("path-prefix"), "logout"),
+		LogoutPath:  path.Join(viper.GetString("path-prefix"), "logout"),
 	}
 
 	// Add technical details for debugging
@@ -472,10 +472,11 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, r *http.Request) {
 	tmpl := template.Must(template.New("index").Parse(indexTemplate))
 	sb, err := h.GetServerBank(viper.GetStringMapString("tags"))
 	if err != nil {
+		log.Printf("IndexHandler: failed to get server bank: %v", err)
 		RenderErrorPage(w, r, http.StatusInternalServerError,
 			"Server Connection Failed",
 			"Unable to retrieve server information from the cloud provider",
-			err.Error(),
+			"Please try again or contact your administrator if the problem persists.",
 			"error")
 		return
 	}
@@ -500,8 +501,8 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, r *http.Request) {
 		ActionText:      "Pending",
 		AccentColor:     viper.GetString("accent-color"),
 		BackgroundColor: viper.GetString("background-color"),
-		TogglePath:      filepath.Join(viper.GetString("path-prefix"), "toggle"),
-		LogoutPath:      filepath.Join(viper.GetString("path-prefix"), "logout"),
+		TogglePath:      path.Join(viper.GetString("path-prefix"), "toggle"),
+		LogoutPath:      path.Join(viper.GetString("path-prefix"), "logout"),
 		OIDCEnabled:     oidcEnabled,
 	}
 
@@ -541,7 +542,7 @@ func LandingHandler(w http.ResponseWriter, _ *http.Request) {
 		AccentColor:     viper.GetString("accent-color"),
 		BackgroundColor: viper.GetString("background-color"),
 		Logo:            viper.GetString("logo"),
-		LoginPath:       filepath.Join(viper.GetString("path-prefix"), "login"),
+		LoginPath:       path.Join(viper.GetString("path-prefix"), "login"),
 	}
 	if err := tmpl.Execute(w, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -699,13 +700,13 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	storedState, ok := session.Values["state"].(string)
 	if !ok || r.URL.Query().Get("state") != storedState {
-		http.Error(w, "invalid state", http.StatusBadRequest)
+		clearSessionAndRedirectToLogin(w, r, "CallbackHandler: state mismatch in OAuth callback")
 		return
 	}
 	token, err := oauth2Config.Exchange(r.Context(), r.URL.Query().Get("code"))
 	if err != nil {
-		errorMsg := fmt.Sprintf("Token exchange failed: %v", err)
-		http.Error(w, errorMsg, http.StatusInternalServerError)
+		log.Printf("CallbackHandler: token exchange failed: %v", err)
+		clearSessionAndRedirectToLogin(w, r, "CallbackHandler: token exchange failed")
 		return
 	}
 	rawIDToken, ok := token.Extra("id_token").(string)
@@ -858,7 +859,7 @@ func clearSessionAndRedirectToLogin(w http.ResponseWriter, r *http.Request, logM
 		Path:     pathPrefix,
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   strings.Contains(r.Header.Get("X-Forwarded-Proto"), "https") || strings.HasPrefix(r.URL.String(), "https://"),
+		Secure:   r.TLS != nil || strings.Contains(r.Header.Get("X-Forwarded-Proto"), "https"),
 		SameSite: http.SameSiteLaxMode,
 	})
 
@@ -875,9 +876,9 @@ func (a *AuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next 
 		return
 	}
 	pathPrefix := viper.GetString("path-prefix")
-	path := strings.TrimPrefix(r.URL.Path, pathPrefix)
-	path = strings.TrimPrefix(path, "/")
-	if path == "login" || path == "logout" || path == "callback" || path == "favicon.ico" || strings.HasPrefix(path, "login") || strings.HasPrefix(path, "logout") || strings.HasPrefix(path, "callback") {
+	reqPath := strings.TrimPrefix(r.URL.Path, pathPrefix)
+	reqPath = strings.TrimPrefix(reqPath, "/")
+	if reqPath == "login" || reqPath == "logout" || reqPath == "callback" || reqPath == "favicon.ico" || strings.HasPrefix(reqPath, "login") || strings.HasPrefix(reqPath, "logout") || strings.HasPrefix(reqPath, "callback") {
 		next(w, r)
 		return
 	}
@@ -888,7 +889,7 @@ func (a *AuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next 
 	}
 	authenticated, ok := session.Values["authenticated"].(bool)
 	if !ok || !authenticated {
-		if r.Method == http.MethodGet && (path == "" || path == "/") {
+		if r.Method == http.MethodGet && (reqPath == "" || reqPath == "/") {
 			LandingHandler(w, r)
 		} else {
 			loginPath := strings.TrimSuffix(pathPrefix, "/") + "/login"
@@ -1005,6 +1006,9 @@ func serve() {
 			}
 			log.Printf("Using configured session secret")
 		} else {
+			if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != "" {
+				log.Fatalf("--session-secret is required in Lambda: random keys are lost across cold starts, logging users out")
+			}
 			// Generate random session key for development
 			sessionKey = make([]byte, sessionKeySize)
 			if _, err := rand.Read(sessionKey); err != nil {

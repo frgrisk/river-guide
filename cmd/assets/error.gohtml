@@ -318,10 +318,12 @@
                 {{ end }}
 
                 {{ if .ShowLogout }}
-                <a href="{{ .LogoutPath }}" class="action-button action-danger">
-                    <span>🚪</span>
-                    <span>Logout</span>
-                </a>
+                <form method="POST" action="{{ .LogoutPath }}" style="display: inline;">
+                    <button type="submit" class="action-button action-danger">
+                        <span>🚪</span>
+                        <span>Logout</span>
+                    </button>
+                </form>
                 {{ end }}
             </div>
 

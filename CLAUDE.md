@@ -131,8 +131,8 @@ next.ServeHTTP(w, r.WithContext(ctx))
 
 1. Negroni recovery middleware
 2. Static file serving
-3. UserAwareLogger (custom request logging)
-4. AuthMiddleware (OIDC authentication)
+3. AuthMiddleware (OIDC authentication)
+4. UserAwareLogger (custom request logging)
 5. Router (gorilla/mux)
 
 ### Templates
