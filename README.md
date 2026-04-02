@@ -179,6 +179,14 @@ favicon: "/path/to/favicon"
 session-max-age: 86400 # Session lifetime in seconds (24 hours)
 ```
 
+> [!WARNING]
+> The configuration file uses [Viper](https://github.com/spf13/viper), which
+> [lowercases all keys](https://github.com/spf13/viper/issues/1014) including
+> tag names. If your cloud provider tags are case-sensitive (e.g.,
+> `Environment` vs `environment`), use the `--tags` flag or the
+> `RIVER_GUIDE_TAGS` environment variable instead, which preserve the original
+> casing.
+
 ### Environment variables
 
 In addition to flags and the configuration file, you can also use
@@ -188,6 +196,12 @@ instance, to set the title, you could use the following command:
 
 ```bash
 export RIVER_GUIDE_TITLE="My Custom Title"
+```
+
+For map values like tags, use JSON format:
+
+```bash
+export RIVER_GUIDE_TAGS='{"Environment":"dev","DashboardManageable":"true"}'
 ```
 
 ### Optional OIDC login
