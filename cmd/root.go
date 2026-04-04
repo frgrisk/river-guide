@@ -182,6 +182,9 @@ func init() {
 	rootCmd.Flags().StringSlice("oidc-log-claims", []string{"sub"}, "OIDC claims to include in request logs (e.g. sub, email, name)")
 	rootCmd.Flags().String("session-secret", "", "session secret key (hex-encoded, 64 characters). If not provided, a random key is generated.")
 	rootCmd.Flags().Int("session-max-age", defaultSessionMaxAge, "session cookie lifetime in seconds (default: 86400 = 24 hours)")
+	rootCmd.Flags().String("tls-cert", "", "path to TLS certificate file (enables HTTPS)")
+	rootCmd.Flags().String("tls-key", "", "path to TLS private key file (requires --tls-cert)")
+	rootCmd.MarkFlagsRequiredTogether("tls-cert", "tls-key")
 
 	err := viper.BindPFlags(rootCmd.Flags())
 	if err != nil {
@@ -1137,7 +1140,14 @@ func serve() {
 		ReadHeaderTimeout: viper.GetDuration("read-header-timeout"),
 	}
 
-	// Start the HTTP server
+	tlsCert := viper.GetString("tls-cert")
+	tlsKey := viper.GetString("tls-key")
+
+	if tlsCert != "" {
+		log.Infof("Server running on https://localhost:%v%v", viper.GetInt("port"), viper.GetString("path-prefix"))
+		log.Fatal(server.ListenAndServeTLS(tlsCert, tlsKey))
+	}
+
 	log.Infof("Server running on http://localhost:%v%v", viper.GetInt("port"), viper.GetString("path-prefix"))
 	log.Fatal(server.ListenAndServe())
 }

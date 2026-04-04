@@ -1,0 +1,35 @@
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    command: start-dev
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HTTPS_CERTIFICATE_FILE: /tls/cert.pem
+      KC_HTTPS_CERTIFICATE_KEY_FILE: /tls/key.pem
+    ports:
+      - "9443:8443"
+    volumes:
+      - ./tls_certificates/keycloak:/tls:ro
+      - ./tls_certificates/rootCA.pem:/rootCA.pem:ro
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8443 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  keycloak-setup:
+    image: alpine:latest
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        apk add --no-cache curl jq bash >/dev/null 2>&1
+        bash /setup/configure_keycloak.sh --keycloak-url https://keycloak:8443 --redirect-uris "http://localhost:3000/* http://localhost:*/* https://localhost:*/*"
+    volumes:
+      - ./e2e/configure_keycloak.sh:/setup/configure_keycloak.sh:ro
+      - ./tls_certificates/rootCA.pem:/etc/ssl/certs/rootCA.pem:ro

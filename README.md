@@ -158,6 +158,8 @@ The application accepts several flags:
 - `--oidc-log-claims`: comma-separated list of OIDC claims to include in request logs (optional, defaults to "sub")
 - `--session-secret`: session secret key (hex-encoded, 64 characters). Required for Lambda/production deployments to ensure session consistency across instances.
 - `--session-max-age`: session cookie lifetime in seconds (default is 86400 = 24 hours).
+- `--tls-cert`: path to TLS certificate file (enables HTTPS).
+- `--tls-key`: path to TLS private key file (requires `--tls-cert`).
 
 ### Configuration file
 
