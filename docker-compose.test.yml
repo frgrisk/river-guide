@@ -29,7 +29,7 @@ services:
       - -c
       - |
         apk add --no-cache curl jq bash >/dev/null 2>&1
-        bash /setup/configure_keycloak.sh --keycloak-url https://keycloak:8443 --redirect-uris "http://localhost:3000/* http://localhost:*/* https://localhost:*/*"
+        bash /setup/configure_keycloak.sh --keycloak-url https://keycloak:8443 --redirect-uris "http://localhost:3000/* https://localhost:3000/*"
     volumes:
       - ./e2e/configure_keycloak.sh:/setup/configure_keycloak.sh:ro
       - ./tls_certificates/rootCA.pem:/etc/ssl/certs/rootCA.pem:ro

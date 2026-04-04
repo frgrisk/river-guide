@@ -9,10 +9,12 @@
 #
 # Ctrl-C to stop and clean up.
 
-set -euo pipefail
+set -Eeuo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+trap 'printf "ERROR: Script failed on line %s\n" "$LINENO" >&2' ERR
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+PROJECT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
 CERT_DIR="$PROJECT_DIR/tls_certificates"
 
 cleanup() {
@@ -23,12 +25,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# --- Generate TLS certificates ---
+# --- Check dependencies ---
 
-if ! command -v mkcert &>/dev/null; then
-  printf "ERROR: mkcert is required. Install it: https://github.com/FiloSottile/mkcert\n" >&2
-  exit 1
-fi
+for cmd in docker mkcert; do
+  command -v "$cmd" &>/dev/null || { printf "ERROR: %s is required\n" "$cmd" >&2; exit 1; }
+done
 
 if [[ ! -f "$CERT_DIR/keycloak/cert.pem" ]]; then
   printf "Generating TLS certificates...\n"
@@ -67,6 +68,10 @@ for i in $(seq 1 120); do
 done
 
 CLIENT_SECRET=$(docker compose -f docker-compose.test.yml logs keycloak-setup 2>/dev/null | grep "Client Secret:" | tail -1 | awk '{print $NF}')
+if [[ -z "${CLIENT_SECRET:-}" ]]; then
+  printf "ERROR: Could not extract client secret from keycloak-setup logs\n" >&2
+  exit 1
+fi
 
 printf "\n"
 printf "============================================\n"

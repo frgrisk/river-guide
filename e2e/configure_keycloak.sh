@@ -12,7 +12,7 @@ for cmd in curl jq; do
 done
 
 KEYCLOAK_URL="${KEYCLOAK_URL:-http://localhost:9090}"
-REDIRECT_URIS="http://localhost:3000/*"
+REDIRECT_URIS="http://localhost:3000/* https://localhost:3000/*"
 REALM="river-guide"
 CLIENT_ID="river-guide"
 USER_PASSWORD="testpass"
@@ -26,6 +26,8 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+# Word splitting is intentional here to split space-separated URIs into lines
+# shellcheck disable=SC2086
 REDIRECT_URIS_JSON=$(printf '%s\n' $REDIRECT_URIS | jq -R . | jq -s .)
 API="$KEYCLOAK_URL/admin"
 
@@ -54,20 +56,36 @@ done
 printf "Keycloak is ready.\n"
 
 TOKEN=$(get_token)
+if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then
+  printf "ERROR: Failed to get admin access token\n" >&2
+  exit 1
+fi
 
 # Create realm
 api POST "/realms" -d "$(jq -n --arg r "$REALM" '{realm:$r, enabled:true}')" 2>/dev/null || true
 printf "Realm: %s\n" "$REALM"
 
-# Create client
-api POST "/realms/$REALM/clients" -d "$(jq -n \
-  --arg id "$CLIENT_ID" --argjson uris "$REDIRECT_URIS_JSON" '{
-  clientId:$id, protocol:"openid-connect", publicClient:false,
-  standardFlowEnabled:true, directAccessGrantsEnabled:true,
-  enabled:true, redirectUris:$uris, webOrigins:["+"]
-}')" 2>/dev/null || true
-
-CLIENT_INTERNAL=$(api GET "/realms/$REALM/clients?clientId=$CLIENT_ID" | jq -r '.[0].id')
+# Create or update client
+CLIENT_INTERNAL=$(api GET "/realms/$REALM/clients?clientId=$CLIENT_ID" | jq -r '.[0].id // empty')
+if [[ -z "$CLIENT_INTERNAL" ]]; then
+  printf "Creating client: %s\n" "$CLIENT_ID"
+  api POST "/realms/$REALM/clients" -d "$(jq -n \
+    --arg id "$CLIENT_ID" --argjson uris "$REDIRECT_URIS_JSON" '{
+    clientId:$id, protocol:"openid-connect", publicClient:false,
+    standardFlowEnabled:true, directAccessGrantsEnabled:true,
+    enabled:true, redirectUris:$uris, webOrigins:["+"]
+  }')"
+  CLIENT_INTERNAL=$(api GET "/realms/$REALM/clients?clientId=$CLIENT_ID" | jq -r '.[0].id')
+else
+  printf "Updating client redirect URIs: %s\n" "$CLIENT_ID"
+  api GET "/realms/$REALM/clients/$CLIENT_INTERNAL" \
+    | jq --argjson uris "$REDIRECT_URIS_JSON" '.redirectUris = $uris | .webOrigins = ["+"]' \
+    | api PUT "/realms/$REALM/clients/$CLIENT_INTERNAL" -d @-
+fi
+if [[ -z "$CLIENT_INTERNAL" || "$CLIENT_INTERNAL" == "null" ]]; then
+  printf "ERROR: Failed to get client internal ID\n" >&2
+  exit 1
+fi
 CLIENT_SECRET=$(api GET "/realms/$REALM/clients/$CLIENT_INTERNAL/client-secret" | jq -r '.value')
 
 # Add groups mapper
@@ -83,6 +101,10 @@ done
 
 GROUP_ID=$(api GET "/realms/$REALM/groups?search=allowed-group&exact=true" | jq -r '.[0].id')
 OTHER_GROUP_ID=$(api GET "/realms/$REALM/groups?search=other-group&exact=true" | jq -r '.[0].id')
+if [[ -z "$GROUP_ID" || "$GROUP_ID" == "null" || -z "$OTHER_GROUP_ID" || "$OTHER_GROUP_ID" == "null" ]]; then
+  printf "ERROR: Failed to get group IDs\n" >&2
+  exit 1
+fi
 
 # Create users
 create_user() {
@@ -93,7 +115,8 @@ create_user() {
     enabled:true, emailVerified:true,
     credentials:[{type:"password",value:$p,temporary:false}]
   }')" 2>/dev/null || true
-  local uid=$(api GET "/realms/$REALM/users?username=$username&exact=true" | jq -r '.[0].id')
+  local uid
+  uid=$(api GET "/realms/$REALM/users?username=$username&exact=true" | jq -r '.[0].id')
   api PUT "/realms/$REALM/users/$uid/groups/$group_id" 2>/dev/null || true
 }
 
