@@ -726,7 +726,8 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	// Parse all claims into a map for flexible access
 	var allClaims map[string]interface{}
 	if err := idToken.Claims(&allClaims); err != nil {
-		http.Error(w, "failed to parse claims", http.StatusInternalServerError)
+		log.Printf("CallbackHandler: failed to parse claims: %v", err)
+		clearSessionAndRedirectToLogin(w, r, "CallbackHandler: failed to parse claims")
 		return
 	}
 
@@ -743,13 +744,20 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(allowedGroups) > 0 && !hasAllowedGroup(groups) {
-		errorMsg := fmt.Sprintf("User groups %v are not in allowed groups %v", groups, allowedGroups)
+		log.Printf("Access denied: user groups %v are not in allowed groups %v", groups, allowedGroups)
+		// Clear session to prevent stale auth data from a prior login persisting
+		for key := range session.Values {
+			delete(session.Values, key)
+		}
+		session.Options.MaxAge = -1
+		if saveErr := session.Save(r, w); saveErr != nil {
+			log.Printf("CallbackHandler: failed to clear session after access denied: %v", saveErr)
+		}
 		RenderErrorPage(w, r, http.StatusForbidden,
 			"Access Denied",
 			"Your account doesn't have permission to access this application",
 			"Please contact your administrator to request access or use a different account.",
 			"warning")
-		log.Printf("Access denied: %s", errorMsg)
 		return
 	}
 
@@ -816,7 +824,7 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err := session.Save(r, w); err != nil {
 		log.Printf("CallbackHandler: failed to save session: %v", err)
-		http.Error(w, fmt.Sprintf("failed to save session: %v", err), http.StatusInternalServerError)
+		http.Error(w, "failed to save session", http.StatusInternalServerError)
 		return
 	}
 	http.Redirect(w, r, viper.GetString("path-prefix"), http.StatusFound)

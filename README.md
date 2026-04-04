@@ -174,7 +174,7 @@ tags:
 title: Environment Control
 accent-color: "#93C30B"
 background-color: "#244A66"
-logo: "/path/to/logo.png" # Optional company logo
+logo: "https://example.com/logo.png" # Optional: URL used as <img src>, not read from disk
 favicon: "/path/to/favicon"
 session-max-age: 86400 # Session lifetime in seconds (24 hours)
 ```
