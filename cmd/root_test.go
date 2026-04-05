@@ -240,17 +240,17 @@ func TestUserAwareLogger(t *testing.T) {
 
 			logger.ServeHTTP(rw, req, next)
 
-			logOutput := logOutput.String()
+			out := logOutput.String()
 			if tt.name == "request with multiple claims" {
 				// For multiple claims, just check that user= is present and contains expected claims
-				if !strings.Contains(logOutput, "user=") ||
-					!strings.Contains(logOutput, "sub=user123") ||
-					!strings.Contains(logOutput, "email=user@example.com") ||
-					!strings.Contains(logOutput, "name=John Doe") {
-					t.Errorf("Expected log to contain all claims, got %q", logOutput)
+				if !strings.Contains(out, "user=") ||
+					!strings.Contains(out, "sub=user123") ||
+					!strings.Contains(out, "email=user@example.com") ||
+					!strings.Contains(out, "name=John Doe") {
+					t.Errorf("Expected log to contain all claims, got %q", out)
 				}
-			} else if !strings.Contains(logOutput, tt.expectedInLog) {
-				t.Errorf("Expected log to contain %q, got %q", tt.expectedInLog, logOutput)
+			} else if !strings.Contains(out, tt.expectedInLog) {
+				t.Errorf("Expected log to contain %q, got %q", tt.expectedInLog, out)
 			}
 		})
 	}

@@ -156,7 +156,7 @@ The application accepts several flags:
 - `--oidc-groups`: comma-separated list of allowed OIDC groups (optional)
 - `--oidc-scopes`: comma-separated list of OIDC scopes to request (optional, defaults to "openid,profile,email" plus "groups" if --oidc-groups is set)
 - `--oidc-log-claims`: comma-separated list of OIDC claims to include in request logs (optional, defaults to "sub")
-- `--session-secret`: session secret key (hex-encoded, 64 characters). Required for Lambda/production deployments to ensure session consistency across instances.
+- `--session-secret`: session secret key (hex-encoded, 64 characters). Required for Lambda deployments (which use CookieStore). Non-Lambda deployments use FilesystemStore, so a shared secret alone does not provide cross-instance session consistency without shared storage or sticky sessions.
 - `--session-max-age`: session cookie lifetime in seconds (default is 86400 = 24 hours).
 - `--tls-cert`: path to TLS certificate file (enables HTTPS).
 - `--tls-key`: path to TLS private key file (requires `--tls-cert`).

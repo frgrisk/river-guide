@@ -124,14 +124,17 @@ func (l *UserAwareLogger) ServeHTTP(rw http.ResponseWriter, r *http.Request, nex
 		}
 		userInfo = fmt.Sprintf(" user=%s", strings.Join(parts, ","))
 	}
-	next(rw, r)
+	// Capture and strip X-Toggle-Action before the response is sent to the client
+	var actionInfo string
 	res := rw.(negroni.ResponseWriter)
+	res.Before(func(w negroni.ResponseWriter) {
+		if action := w.Header().Get("X-Toggle-Action"); action != "" {
+			actionInfo = fmt.Sprintf(" action=%s", action)
+			w.Header().Del("X-Toggle-Action")
+		}
+	})
 
-	actionInfo := ""
-	if action := rw.Header().Get("X-Toggle-Action"); action != "" {
-		actionInfo = fmt.Sprintf(" action=%s", action)
-		rw.Header().Del("X-Toggle-Action")
-	}
+	next(rw, r)
 
 	l.Printf("%s %s%s%s from=%s -> %d %s in %v",
 		r.Method,
@@ -941,7 +944,7 @@ func (a *AuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next 
 	}
 	expiry, _ := session.Values["token_expiry"].(int64)
 	if expiry > 0 && time.Now().Unix() > expiry {
-		http.Redirect(w, r, pathFor("login"), http.StatusFound)
+		clearSessionAndRedirectToLogin(w, r, "AuthMiddleware: token expired")
 		return
 	}
 	// Check group authorization if required
