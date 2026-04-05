@@ -1,0 +1,236 @@
+# Claude Development Guide for River Guide
+
+This file contains project-specific instructions for Claude when working on River Guide.
+
+## Code Quality and Linting
+
+### Running Linters
+
+Always run linting before committing changes:
+
+```bash
+# Run golangci-lint with auto-fix
+golangci-lint run --fix
+
+# Build and test
+go build ./...
+go test ./...
+```
+
+### Key Linting Rules
+
+- Use `golangci-lint run --fix` to automatically fix most issues
+- Replace string concatenation with `+=` operator: `path += "/"` not `path = path + "/"`
+- Use `http.NoBody` instead of `nil` for HTTP request bodies
+- Define constants for magic numbers (session timeouts, key sizes, etc.)
+- Use proper context key types (custom type, not string)
+- Mark unused parameters with `_` prefix
+- Follow struct field alignment recommendations
+- Always run `npx prettier --write` on modified files
+- For `.gohtml` files, use `--parser html`: `npx prettier --write --parser html file.gohtml`
+- Prettier will fail on `.gohtml` files with Go template conditionals (e.g., `{{if eq .X "Y"}}`) inside HTML attributes — this is expected, skip prettier for those files
+
+### Testing Requirements
+
+- Always run tests after changes: `go test ./...`
+- Add test coverage for new functionality
+- Use proper mocking and table-driven tests
+- Test both success and error scenarios
+
+## OIDC Implementation
+
+### Security Principles
+
+- Store minimal session data to avoid cookie size limits
+- Clear invalid sessions gracefully - redirect to login, don't show technical errors
+- Use cryptographically secure random keys
+- Validate all configuration parameters together
+- Log detailed errors server-side but show friendly messages to users
+
+### Session Management
+
+- Lambda uses CookieStore; non-Lambda uses FilesystemStore (larger session capacity)
+- Lambda requires `--session-secret` (fails fast if missing); non-Lambda generates a random key if not provided
+- Session cookies should be HttpOnly, Secure (for HTTPS), SameSite=Lax
+- Store: `authenticated` flag, `is_authorized`, `authorized_group`, `token_expiry`, and individual claim keys
+- Store claims as individual session keys (e.g., `user_claim_sub`, `user_claim_email`) to avoid gob serialization issues with maps
+- Clear corrupted sessions and redirect to login
+
+### Configuration
+
+- All OIDC params (issuer, client-id, client-secret, redirect-url) must be provided together
+- Scopes are configurable with sensible defaults
+- Default scopes: openid, profile, email (plus "groups" if `--oidc-groups` is set). Override with `--oidc-scopes` if the provider doesn't support a "groups" scope (e.g., Keycloak uses a protocol mapper instead).
+- Validate redirect URL format for cookie security settings
+
+## Error Handling Patterns
+
+### Session Errors
+
+Use the `clearSessionAndRedirectToLogin()` helper for any session-related errors:
+
+```go
+if err != nil {
+    clearSessionAndRedirectToLogin(w, r, fmt.Sprintf("Handler: session error: %v", err))
+    return
+}
+```
+
+### User-Friendly Messages
+
+- Log technical details server-side
+- Show user-friendly messages in browser
+- For OIDC errors, display provider error messages when available
+- Clear invalid state gracefully without exposing internals
+
+## Logging
+
+### User-Aware Logging
+
+The application includes user identification in request logs:
+
+- Anonymous: `"GET / -> 200 OK in 5ms"`
+- Authenticated: `"POST /toggle user=john.doe@company.com action=stop -> 200 OK in 12ms"`
+
+### Context Usage
+
+Add user info to request context for logging (reconstructs claims map from individual session keys):
+
+```go
+userLogClaims := make(map[string]string)
+for key, value := range session.Values {
+    if keyStr, ok := key.(string); ok && strings.HasPrefix(keyStr, "user_claim_") {
+        claimName := strings.TrimPrefix(keyStr, "user_claim_")
+        if claimValue, ok := value.(string); ok {
+            userLogClaims[claimName] = claimValue
+        }
+    }
+}
+ctx := context.WithValue(r.Context(), userSubjectKey, userLogClaims)
+```
+
+## Development Workflow
+
+### Testing with Keycloak
+
+Run `./e2e/keycloak.sh` to start a local Keycloak instance with TLS (via mkcert), pre-configured with a realm, OIDC client, groups, and test users. The script prints a ready-to-use `go run` command with all OIDC flags filled in.
+
+Integration tests run against a real Keycloak container via testcontainers-go:
+
+- `go test -tags integration -timeout 5m ./cmd/...`
+- These are excluded from `go test ./...` by the `//go:build integration` tag
+
+### Before Committing
+
+1. Run `golangci-lint run --fix` to fix code quality issues
+2. Run `go build ./...` to ensure compilation
+3. Run `go test ./...` to ensure tests pass
+4. Check that changes work with both AWS and Azure providers
+5. Test OIDC flows if authentication code was modified
+
+### Git Practices
+
+- Write descriptive commit messages
+- Do not include Co-Authored-By lines in commits
+- Group related changes into single commits
+- Test functionality before pushing
+
+## Architecture Notes
+
+### Provider Pattern
+
+- CloudProvider interface supports AWS and Azure
+- Each provider handles its own authentication and resource management
+- RDS support is optional and AWS-specific
+
+### Middleware Stack
+
+1. Negroni recovery middleware
+2. Static file serving
+3. AuthMiddleware (OIDC authentication)
+4. UserAwareLogger (custom request logging)
+5. Router (gorilla/mux)
+
+### Templates
+
+- All HTML templates (`cmd/assets/*.gohtml`) are embedded via `go:embed` and must be self-contained
+- Templates use Syne (heading) + Outfit (body) fonts from Google Fonts
+- UI uses configurable `--accent-color` and `--background-color` (no `--primary-color`)
+- To test without OIDC auth, run without OIDC flags to access the dashboard directly
+- Use `agent-browser` (not Playwright MCP) for visual testing: `agent-browser open <url> && agent-browser screenshot page.png`
+
+### Toggle Endpoint
+
+- `POST /toggle?action=start` or `POST /toggle?action=stop` (explicit, not stateless)
+- Returns 200 no-op if instances are already in the requested state
+- Returns 409 Conflict if instances are transitioning
+- Action is logged via `X-Toggle-Action` response header (read by `UserAwareLogger`, deleted before reaching client)
+
+### Path Helpers
+
+- `normalizePathPrefix()` ensures path prefix ends with "/" and defaults to "/"
+- `pathFor(route)` builds absolute paths by joining the path prefix with a route name
+- Use these instead of inline path normalization
+
+### TLS
+
+- `--tls-cert` and `--tls-key` enable HTTPS (enforced together via `MarkFlagsRequiredTogether`)
+- For local dev, `./e2e/keycloak.sh` generates mkcert certs for both Keycloak and the app
+
+### Security Considerations
+
+- Session keys are generated using crypto/rand
+- Cookie security flags are set based on redirect URL scheme
+- Group-based authorization is enforced after authentication
+- All session errors result in clean logout and redirect to login
+
+## Common Patterns
+
+### Constants
+
+Define constants for magic numbers:
+
+```go
+const (
+    sessionKeySize   = 32
+    sessionMaxAge    = 86400 // 24 hours
+    sessionMaxLength = 65536 // 64KB limit for filesystem sessions
+)
+```
+
+### Context Keys
+
+Use typed context keys:
+
+```go
+type contextKey string
+const userSubjectKey contextKey = "user_subject"
+```
+
+### Error Handling
+
+Always handle errors gracefully and provide user-friendly messages while logging technical details.
+
+### Session Storage
+
+Avoid storing maps in sessions due to gob serialization issues. Store complex data as individual keys:
+
+```go
+// Don't do this (gob serialization issues)
+session.Values["user_claims"] = map[string]string{"sub": "user123", "email": "user@example.com"}
+
+// Do this instead
+session.Values["user_claim_sub"] = "user123"
+session.Values["user_claim_email"] = "user@example.com"
+
+// Reconstruct when needed
+claims := make(map[string]string)
+for key, value := range session.Values {
+    if strings.HasPrefix(key, "user_claim_") {
+        claimName := strings.TrimPrefix(key, "user_claim_")
+        if claimValue, ok := value.(string); ok {
+            claims[claimName] = claimValue
+        }
+    }
+}
+```

@@ -1,213 +1,448 @@
 <!DOCTYPE html>
-<html>
-<head>
-	<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;700&display=swap" rel="stylesheet">
-	<title>{{ .Title }}</title>
-	<style>
-		* {
-			font-family: 'IBM Plex Sans', sans-serif;
-		}
-		body {
-			background-color: #f1f1f1;
-			margin: 0;
-			padding: 20px;
-			color: {{ .PrimaryColor }};
-		}
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Syne:wght@700&family=Outfit:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <title>{{ .Title }}</title>
+    <style>
+      :root {
+        --bg: {{ .BackgroundColor }};
+        --accent: {{ .AccentColor }};
+        --text: #e8e6e1;
+        --text-dim: rgba(232, 230, 225, 0.5);
+        --text-faint: rgba(232, 230, 225, 0.12);
+        --line: rgba(232, 230, 225, 0.035);
+        --panel-bg: rgba(232, 230, 225, 0.035);
+        --panel-border: rgba(232, 230, 225, 0.08);
+        --green: #66bb6a;
+        --red: #ef5350;
+        --amber: #ffa726;
+      }
 
-		h1 {
-			text-align: center;
-			color: {{ .PrimaryColor }};
-		}
+      *,
+      *::before,
+      *::after {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
 
-		.container {
-			max-width: 600px;
-			margin: 0 auto;
-			background-color: #fff;
-			border-radius: 8px;
-			padding: 20px;
-			box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
-		}
+      body {
+        font-family: "Outfit", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem;
+        position: relative;
+      }
 
-		button {
-			padding: 10px 20px;
-		{{if eq .ActionText "Start"}}
-			background-color: #4CAF50;
-			color: #fff;
-		{{else if eq .ActionText "Stop"}}
-			background-color: #F44336;
-			color: #fff;
-		{{else}}
-			background-color: #FFEB3B;
-			pointer-events: none; /* Disables the button when 'pending' */
-			color: #333;
-		{{end}}
-			border: none;
-			border-radius: 4px;
-			cursor: pointer;
-			height: 50px; /* Explicitly set button height */
-			font-size: 18px; /* Increase the font size */
-			font-weight: bold; /* Make the text bold */
-			text-transform: uppercase;
-		}
+      /* ─── Topographic background ─── */
 
-		/* This new class will be added to the parent container of the button and the loading indicator */
-		.action-container {
-			display: flex;
-			justify-content: center;
-			align-items: center;
-			gap: 10px; /* Space between button and loading indicator */
-		}
+      .topo {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+      }
 
-		p {
-			margin: 10px 0;
-		}
+      .topo svg {
+        width: 100%;
+        height: 100%;
+      }
 
-		.server-list {
-			margin-top: 20px;
-		}
+      .topo .c {
+        fill: none;
+        stroke: var(--line);
+        stroke-width: 1;
+      }
 
-		.server-item {
-			display: flex;
-			align-items: center;
-			padding: 10px;
-			background-color: #fff;
-			border-radius: 4px;
-			box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
-			margin-bottom: 10px;
-		}
+      .topo .cs {
+        fill: none;
+        stroke: rgba(232, 230, 225, 0.055);
+        stroke-width: 1.5;
+      }
 
-		.server-name {
-			font-weight: bold;
-			flex-grow: 1;
-		}
+      .grid {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        background-image: radial-gradient(
+          circle,
+          rgba(232, 230, 225, 0.015) 1px,
+          transparent 1px
+        );
+        background-size: 48px 48px;
+      }
 
-		.server-status {
-			padding: 6px 10px;
-			border-radius: 4px;
-			color: #fff;
-			text-transform: uppercase;
-			font-size: 12px;
-			font-weight: bold;
-		}
+      /* ─── Layout ─── */
 
-		.server-status.running {
-			background-color: #4CAF50;
-		}
+      .wrap {
+        position: relative;
+        z-index: 1;
+        width: 100%;
+        max-width: 580px;
+        animation: fadeUp 0.5s ease-out both;
+      }
 
-		.server-status.stopped {
-			background-color: #F44336;
-		}
+      @keyframes fadeUp {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
 
-		.server-status.pending {
-			background-color: #FFEB3B;
-			color: #333;
-		}
+      /* ─── Header ─── */
 
-		.server-status.stopping {
-			background-color: #FFEB3B;
-			color: #333;
-		}
+      .header {
+        text-align: center;
+        margin-bottom: 2rem;
+      }
 
-		.server-icon {
-			font-weight: bold;
-			color: #FFC107;
-			margin-right: 25%;
-		}
+      .title {
+        font-family: "Syne", sans-serif;
+        font-weight: 700;
+        font-size: clamp(1.3rem, 3vw, 1.7rem);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        line-height: 1.2;
+      }
 
-		@keyframes spin {
-			0% { transform: rotate(0deg); }
-			100% { transform: rotate(360deg); }
-		}
+      .rule {
+        width: 32px;
+        height: 2px;
+        background: var(--accent);
+        border: none;
+        margin: 0.75rem auto;
+      }
 
-		#loading-indicator {
-			width: 50px;
-			height: 50px; /* Match the height of the button */
-			border: 16px solid #f3f3f3;
-			border-top: 16px solid #3498db;
-			border-radius: 50%;
-			animation: spin 2s linear infinite;
-			display: none;
-		}
+      .user-info {
+        font-size: 0.78rem;
+        color: var(--text-dim);
+        letter-spacing: 0.02em;
+      }
 
-		/* Dark mode styles */
-		@media (prefers-color-scheme: dark) {
-			body {
-				background-color: #333;
-				color: #f1f1f1;  /* this will apply to all text unless otherwise specified */
-			}
-			.container {
-				background-color: #444;
-				color: #f1f1f1;
-			}
-			.server-item {
-				background-color: #555;
-			}
-			h1, .server-name {
-				color: #fff;
-			}
-			button {
-				border-color: #fff; /* If you want the button border to be visible in dark mode */
-			}
-			#loading-indicator {
-				border: 16px solid #444;
-				border-top: 16px solid #bbb;
-			}
-		}
-	</style>
-</head>
-<body>
-	<div class="container">
-		<h1>{{ .Title }}</h1>
-		<div class="action-container">
-			<button onclick="toggleServer()">{{.ActionText}}</button>
-			<div id="loading-indicator"></div>
-		</div>
-		<div class="server-list">
-			{{range .Servers}}
-				<div class="server-item">
-					<div class="server-name">{{.Name}}</div>
-					<div class="server-icon">{{.Type}}</div>
-					<div class="server-status {{.Status}}">
-						{{.Status}}
-					</div>
-				</div>
-			{{end}}
-		</div>
-	</div>
-</body>
-{{if eq .ActionText "Pending"}}
-<script>
-	showLoadingIndicator();
-	setTimeout(() => location.reload(), 4000); // Retry after 3 seconds if status is still "pending"
+      .sep {
+        margin: 0 0.4rem;
+        color: var(--text-faint);
+      }
 
-	function showLoadingIndicator() {
-		const loadingIndicator = document.getElementById("loading-indicator");
-		loadingIndicator.style.display = "inline-block"; // this line shows the loading indicator
-	}
-</script>
-{{else}}
-<script>
-	async function fetchFromServer(url, method = 'GET', body = null) {
-		const response = await fetch(url, { method, body });
-		if (!response.ok) {
-			// Parse the response body as text
-			const errorText = await response.text();
-			throw new Error(errorText || 'Network response was not ok');
-		}
-		return await response.text();
-	}
+      .sign-out {
+        color: var(--text-dim);
+        text-decoration: none;
+        font-weight: 400;
+        transition: color 0.2s ease;
+      }
 
-	async function toggleServer() {
-	  try {
-		await fetchFromServer("{{ .TogglePath }}", "POST");
-		location.reload();
-	  } catch (error) {
-		// Display the error message to the user in some way
-		alert(error.message);
-		// Refresh the page after the alert is acknowledged
-		location.reload();
-	  }
-	}
-</script>
-{{end}}
+      .sign-out:hover {
+        color: var(--text);
+      }
+
+      /* ─── Action ─── */
+
+      .action {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 1.5rem;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.7rem 2rem;
+        border: 1.5px solid;
+        background: transparent;
+        font-family: "Outfit", sans-serif;
+        font-weight: 500;
+        font-size: 0.85rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        border-radius: 3px;
+        cursor: pointer;
+        transition: all 0.25s ease;
+      }
+
+      .btn:active {
+        transform: scale(0.97);
+      }
+
+      .btn.loading {
+        pointer-events: none;
+        opacity: 0.5;
+      }
+
+      .btn-start {
+        border-color: var(--green);
+        color: var(--green);
+      }
+      .btn-start:hover {
+        background: var(--green);
+        color: var(--bg);
+      }
+
+      .btn-stop {
+        border-color: var(--red);
+        color: var(--red);
+      }
+      .btn-stop:hover {
+        background: var(--red);
+        color: var(--bg);
+      }
+
+      .btn-pending {
+        border-color: var(--amber);
+        color: var(--amber);
+        pointer-events: none;
+        animation: pulse 2s ease-in-out infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.45;
+        }
+      }
+
+      .spinner {
+        width: 22px;
+        height: 22px;
+        border: 2px solid var(--panel-border);
+        border-top-color: var(--amber);
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+        display: none;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* ─── Server list ─── */
+
+      .panel {
+        background: var(--panel-bg);
+        border: 1px solid var(--panel-border);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+
+      .server {
+        display: flex;
+        align-items: center;
+        padding: 0.8rem 1.2rem;
+        border-bottom: 1px solid var(--panel-border);
+        transition: background 0.15s ease;
+      }
+
+      .server:last-child {
+        border-bottom: none;
+      }
+
+      .server:hover {
+        background: rgba(232, 230, 225, 0.02);
+      }
+
+      .server-name {
+        flex: 1;
+        font-weight: 400;
+        font-size: 0.88rem;
+        letter-spacing: 0.01em;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .server-type {
+        font-size: 0.65rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+        margin: 0 0.75rem;
+        padding: 0.15rem 0.45rem;
+        border: 1px solid var(--panel-border);
+        border-radius: 3px;
+        flex-shrink: 0;
+      }
+
+      .status {
+        font-size: 0.65rem;
+        font-weight: 500;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 0.2rem 0.55rem;
+        border-radius: 3px;
+        flex-shrink: 0;
+      }
+
+      .status.running {
+        background: rgba(102, 187, 106, 0.15);
+        color: var(--green);
+      }
+
+      .status.stopped {
+        background: rgba(239, 83, 80, 0.15);
+        color: var(--red);
+      }
+
+      .status.pending,
+      .status.stopping {
+        background: rgba(255, 167, 38, 0.15);
+        color: var(--amber);
+      }
+
+      /* ─── Responsive ─── */
+
+      @media (max-width: 640px) {
+        body {
+          padding: 1.5rem 1rem;
+        }
+
+        .server {
+          padding: 0.75rem 1rem;
+        }
+
+        .server-name {
+          font-size: 0.82rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topo">
+      <svg
+        viewBox="0 0 1440 900"
+        preserveAspectRatio="xMidYMid slice"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          class="c"
+          d="M-20,860 C50,660 180,490 320,410 S520,350 580,430 530,610 420,810"
+        />
+        <path
+          class="cs"
+          d="M-80,900 C10,600 160,390 320,290 S560,210 660,350 590,570 460,840"
+        />
+        <path
+          class="c"
+          d="M1020,830 C1040,710 1100,600 1180,550 S1300,520 1340,590 1300,730 1200,830"
+        />
+        <path
+          class="cs"
+          d="M960,890 C1000,670 1060,520 1180,450 S1340,400 1400,510 1340,690 1220,880"
+        />
+        <path
+          class="c"
+          d="M-100,590 C200,550 450,610 700,570 S1050,530 1300,590 1540,560"
+        />
+        <path
+          class="c"
+          d="M-100,140 C200,120 500,160 800,130 S1200,110 1540,150"
+        />
+      </svg>
+    </div>
+
+    <div class="grid"></div>
+
+    <div class="wrap">
+      <div class="header">
+        <h1 class="title">{{ .Title }}</h1>
+        <hr class="rule" />
+        {{if .OIDCEnabled}}
+        <div class="user-info">
+          {{if .UserName}}{{ .UserName }}{{else if .UserEmail}}{{
+            .UserEmail
+          }}{{else if .UserSubject}}{{ .UserSubject }}{{else}}authenticated
+          user{{end}}
+          <span class="sep">&middot;</span>
+          <a href="#" class="sign-out" onclick="logout(); return false;"
+            >Sign out</a
+          >
+        </div>
+        {{end}}
+      </div>
+
+      <div class="action">
+        <button class="btn {{if eq .ActionText "Start"}}btn-start{{else if eq .ActionText "Stop"}}btn-stop{{else}}btn-pending{{end}}" {{if eq .ActionText "Pending"}}disabled{{end}} onclick="toggleServer()">{{ .ActionText }}</button>
+        <div class="spinner" id="loading-indicator"></div>
+      </div>
+
+      <div class="panel">
+        {{range .Servers}}
+        <div class="server">
+          <span class="server-name">{{ .Name }}</span>
+          <span class="server-type">{{ .Type }}</span>
+          <span class="status {{ .Status }}">{{ .Status }}</span>
+        </div>
+        {{end}}
+      </div>
+    </div>
+
+    {{if eq .ActionText "Pending"}}
+    <script>
+      document.getElementById("loading-indicator").style.display =
+        "inline-block";
+      setTimeout(() => location.reload(), 4000);
+    </script>
+    {{else}}
+    <script>
+      async function fetchFromServer(url, method = "GET", body = null) {
+        const response = await fetch(url, { method, body });
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText || "Network response was not ok");
+        }
+        return await response.text();
+      }
+
+      async function toggleServer() {
+        try {
+          const btn = document.querySelector(".btn");
+          const action = btn.textContent.trim().toLowerCase();
+          btn.classList.add("loading");
+          document.getElementById("loading-indicator").style.display =
+            "inline-block";
+          await fetchFromServer(
+            "{{ .TogglePath }}?action=" + action,
+            "POST",
+          );
+          location.reload();
+        } catch (error) {
+          alert(error.message);
+          location.reload();
+        }
+      }
+
+      async function logout() {
+        try {
+          await fetchFromServer("{{ .LogoutPath }}", "POST");
+          location.reload();
+        } catch (error) {
+          console.error("Logout error:", error);
+          location.reload();
+        }
+      }
+    </script>
+    {{end}}
+  </body>
 </html>

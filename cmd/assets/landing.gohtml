@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Syne:wght@700&family=Outfit:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+    <title>{{ .Title }}</title>
+    <style>
+      :root {
+        --bg: {{ .BackgroundColor }};
+        --accent: {{ .AccentColor }};
+        --text: #e8e6e1;
+        --text-dim: rgba(232, 230, 225, 0.5);
+        --text-faint: rgba(232, 230, 225, 0.12);
+        --line: rgba(232, 230, 225, 0.045);
+        --line-strong: rgba(232, 230, 225, 0.07);
+      }
+
+      *,
+      *::before,
+      *::after {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Outfit", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        position: relative;
+      }
+
+      /* ─── Topographic contour lines ─── */
+
+      .topo {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+      }
+
+      .topo svg {
+        width: 100%;
+        height: 100%;
+      }
+
+      .topo .c {
+        fill: none;
+        stroke: var(--line);
+        stroke-width: 1;
+        stroke-dasharray: 3200;
+        stroke-dashoffset: 3200;
+        animation: draw 3.5s ease-out forwards;
+      }
+
+      .topo .cs {
+        fill: none;
+        stroke: var(--line-strong);
+        stroke-width: 1.5;
+        stroke-dasharray: 3200;
+        stroke-dashoffset: 3200;
+        animation: draw 3.5s ease-out forwards;
+      }
+
+      .topo .elev {
+        font-family: "Outfit", sans-serif;
+        font-size: 9px;
+        fill: var(--text-faint);
+        letter-spacing: 0.05em;
+      }
+
+      .topo .dot {
+        fill: var(--text-faint);
+      }
+
+      .d1 {
+        animation-delay: 0s;
+      }
+      .d2 {
+        animation-delay: 0.12s;
+      }
+      .d3 {
+        animation-delay: 0.24s;
+      }
+      .d4 {
+        animation-delay: 0.36s;
+      }
+      .d5 {
+        animation-delay: 0.48s;
+      }
+      .d6 {
+        animation-delay: 0.6s;
+      }
+      .d7 {
+        animation-delay: 0.72s;
+      }
+      .d8 {
+        animation-delay: 0.84s;
+      }
+      .d9 {
+        animation-delay: 0.96s;
+      }
+      .d10 {
+        animation-delay: 1.08s;
+      }
+      .d11 {
+        animation-delay: 1.2s;
+      }
+      .d12 {
+        animation-delay: 1.32s;
+      }
+
+      @keyframes draw {
+        to {
+          stroke-dashoffset: 0;
+        }
+      }
+
+      /* ─── Dot grid ─── */
+
+      .grid {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        background-image: radial-gradient(
+          circle,
+          rgba(232, 230, 225, 0.02) 1px,
+          transparent 1px
+        );
+        background-size: 48px 48px;
+      }
+
+      /* ─── Logo ─── */
+
+      .logo {
+        position: fixed;
+        top: 2.5rem;
+        left: 2.5rem;
+        z-index: 2;
+        animation: fadeIn 0.6s 0.6s ease-out both;
+      }
+
+      .logo img {
+        max-height: 36px;
+        width: auto;
+        opacity: 0.75;
+      }
+
+      /* ─── Content ─── */
+
+      .content {
+        position: relative;
+        z-index: 1;
+        text-align: center;
+        padding: 2rem;
+        max-width: 640px;
+      }
+
+      .title {
+        font-family: "Syne", sans-serif;
+        font-weight: 700;
+        font-size: clamp(2.2rem, 5vw, 3.4rem);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        line-height: 1.15;
+        text-wrap: balance;
+        animation: fadeUp 0.7s 0.9s ease-out both;
+      }
+
+      .rule {
+        width: 48px;
+        height: 2px;
+        background: var(--accent);
+        border: none;
+        margin: 1.5rem auto;
+        animation: fadeUp 0.6s 1.1s ease-out both;
+      }
+
+      .desc {
+        font-weight: 300;
+        font-size: 0.95rem;
+        color: var(--text-dim);
+        letter-spacing: 0.02em;
+        line-height: 1.6;
+        margin-bottom: 2.5rem;
+        animation: fadeUp 0.6s 1.2s ease-out both;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.85rem 2.2rem;
+        border: 1.5px solid var(--accent);
+        color: var(--accent);
+        background: transparent;
+        text-decoration: none;
+        font-family: "Outfit", sans-serif;
+        font-weight: 500;
+        font-size: 0.9rem;
+        letter-spacing: 0.06em;
+        border-radius: 3px;
+        transition: all 0.25s ease;
+        animation: fadeUp 0.6s 1.4s ease-out both;
+      }
+
+      .btn:hover {
+        background: var(--accent);
+        color: var(--bg);
+      }
+
+      .btn:active {
+        transform: scale(0.98);
+      }
+
+      .btn .arrow {
+        transition: transform 0.25s ease;
+      }
+
+      .btn:hover .arrow {
+        transform: translateX(3px);
+      }
+
+      /* ─── Footer ─── */
+
+      .foot {
+        position: fixed;
+        bottom: 2.5rem;
+        left: 0;
+        right: 0;
+        text-align: center;
+        z-index: 1;
+        font-size: 0.65rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--text-faint);
+        animation: fadeIn 0.6s 1.8s ease-out both;
+      }
+
+      /* ─── Keyframes ─── */
+
+      @keyframes fadeUp {
+        from {
+          opacity: 0;
+          transform: translateY(14px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+
+      /* ─── Responsive ─── */
+
+      @media (max-width: 640px) {
+        .logo {
+          top: 1.5rem;
+          left: 1.5rem;
+        }
+        .content {
+          padding: 1.5rem;
+        }
+        .foot {
+          bottom: 1.5rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topo">
+      <svg
+        viewBox="0 0 1440 900"
+        preserveAspectRatio="xMidYMid slice"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <!-- Left ridge -->
+        <path
+          class="c d1"
+          d="M-20,860 C50,660 180,490 320,410 S520,350 580,430 530,610 420,810"
+        />
+        <path
+          class="cs d2"
+          d="M-50,880 C30,630 170,440 320,350 S540,280 620,390 560,590 440,820"
+        />
+        <path
+          class="c d3"
+          d="M-80,900 C10,600 160,390 320,290 S560,210 660,350 590,570 460,840"
+        />
+
+        <!-- Right hill -->
+        <path
+          class="c d4"
+          d="M1020,830 C1040,710 1100,600 1180,550 S1300,520 1340,590 1300,730 1200,830"
+        />
+        <path
+          class="cs d5"
+          d="M990,860 C1020,690 1080,560 1180,500 S1320,460 1370,550 1320,710 1210,850"
+        />
+        <path
+          class="c d6"
+          d="M960,890 C1000,670 1060,520 1180,450 S1340,400 1400,510 1340,690 1220,880"
+        />
+
+        <!-- River valley spans -->
+        <path
+          class="c d7"
+          d="M-100,520 C200,480 450,540 700,500 S1050,460 1300,520 1540,490"
+        />
+        <path
+          class="cs d8"
+          d="M-100,590 C200,550 450,610 700,570 S1050,530 1300,590 1540,560"
+        />
+        <path
+          class="c d9"
+          d="M-100,660 C200,620 450,680 700,640 S1050,600 1300,660 1540,630"
+        />
+
+        <!-- Upper terrain -->
+        <path
+          class="c d10"
+          d="M-100,140 C200,120 500,160 800,130 S1200,110 1540,150"
+        />
+        <path
+          class="c d11"
+          d="M-100,200 C300,180 600,220 900,190 S1250,170 1540,210"
+        />
+
+        <!-- Lower accent -->
+        <path
+          class="c d12"
+          d="M-100,780 C300,760 600,800 900,770 S1250,750 1540,790"
+        />
+
+        <!-- Elevation markers -->
+        <circle class="dot" cx="320" cy="410" r="1.5" />
+        <text class="elev" x="330" y="408">240</text>
+
+        <circle class="dot" cx="1180" cy="550" r="1.5" />
+        <text class="elev" x="1190" y="548">180</text>
+
+        <circle class="dot" cx="800" cy="130" r="1.5" />
+        <text class="elev" x="810" y="128">80</text>
+      </svg>
+    </div>
+
+    <div class="grid"></div>
+
+    {{if .Logo}}
+    <div class="logo">
+      <img src="{{ .Logo }}" alt="" />
+    </div>
+    {{end}}
+
+    <main class="content">
+      <h1 class="title">{{ .Title }}</h1>
+      <hr class="rule" />
+      <p class="desc">Sign in with your corporate account to continue</p>
+      <a href="{{ .LoginPath }}" class="btn">
+        Sign in <span class="arrow">&rarr;</span>
+      </a>
+    </main>
+
+    <footer class="foot">Authenticated access only</footer>
+  </body>
+</html>

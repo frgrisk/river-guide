@@ -13,7 +13,9 @@ also supports tag-based filtering of instances, enabling you to only display
 instances of interest. Configuration can be provided through command line
 flags, a configuration file, or environment variables.
 
-![Screenshot 2024-04-03 at 15.36.33.png](cmd/assets/screenshot.png)
+![Login page](cmd/assets/screenshot-landing.png)
+
+![Dashboard](cmd/assets/screenshot.png)
 
 ## Installation
 
@@ -142,9 +144,22 @@ The application accepts several flags:
   `Environment=dev,Name=dev.example.com`).
 - `--title`: title to display on the web page (default is "Environment
   Control").
-- `--primary-color`: primary color for text (default is "#333").
+- `--accent-color`: accent color for buttons and highlights (default is "#93C30B").
+- `--background-color`: background color (default is "#244A66").
+- `--logo`: URL for logo image on login page (used as `<img src>`, not read from disk) (optional).
 - `--favicon`: path to favicon (default is embedded favicon).
 - `--rds`: enable support to control RDS instances (default is `false`).
+- `--oidc-issuer`: OIDC issuer URL (optional)
+- `--oidc-client-id`: OIDC client ID (optional)
+- `--oidc-client-secret`: OIDC client secret (optional)
+- `--oidc-redirect-url`: OIDC redirect URL (optional)
+- `--oidc-groups`: comma-separated list of allowed OIDC groups (optional)
+- `--oidc-scopes`: comma-separated list of OIDC scopes to request (optional, defaults to "openid,profile,email" plus "groups" if --oidc-groups is set)
+- `--oidc-log-claims`: comma-separated list of OIDC claims to include in request logs (optional, defaults to "sub")
+- `--session-secret`: session secret key (hex-encoded, 64 characters). Required for Lambda deployments (which use CookieStore). Non-Lambda deployments use FilesystemStore, so a shared secret alone does not provide cross-instance session consistency without shared storage or sticky sessions.
+- `--session-max-age`: session cookie lifetime in seconds (default is 86400 = 24 hours).
+- `--tls-cert`: path to TLS certificate file (enables HTTPS).
+- `--tls-key`: path to TLS private key file (requires `--tls-cert`).
 
 ### Configuration file
 
@@ -159,9 +174,20 @@ tags:
   Environment: dev
   Name: dev.example.com
 title: Environment Control
-primary-color: "#333"
+accent-color: "#93C30B"
+background-color: "#244A66"
+logo: "https://example.com/logo.png" # Optional: URL used as <img src>, not read from disk
 favicon: "/path/to/favicon"
+session-max-age: 86400 # Session lifetime in seconds (24 hours)
 ```
+
+> [!WARNING]
+> The configuration file uses [Viper](https://github.com/spf13/viper), which
+> [lowercases all keys](https://github.com/spf13/viper/issues/1014) including
+> tag names. If your cloud provider tags are case-sensitive (e.g.,
+> `Environment` vs `environment`), use the `--tags` flag or the
+> `RIVER_GUIDE_TAGS` environment variable instead, which preserve the original
+> casing.
 
 ### Environment variables
 
@@ -174,13 +200,77 @@ instance, to set the title, you could use the following command:
 export RIVER_GUIDE_TITLE="My Custom Title"
 ```
 
+For map values like tags, use JSON format:
+
+```bash
+export RIVER_GUIDE_TAGS='{"Environment":"dev","DashboardManageable":"true"}'
+```
+
+### Optional OIDC login
+
+River Guide can optionally protect the UI with an OIDC login. Set the following flags (or their configuration equivalents) to enable authentication:
+
+- `--oidc-issuer`: the OIDC issuer URL
+- `--oidc-client-id`: the client ID registered with the issuer
+- `--oidc-client-secret`: the client secret for the client ID
+- `--oidc-redirect-url`: redirect URL configured for the client
+- `--oidc-groups`: comma-separated list of groups allowed to access the UI (optional)
+- `--oidc-scopes`: comma-separated list of OIDC scopes to request (optional)
+- `--oidc-log-claims`: comma-separated list of OIDC claims to include in request logs (optional)
+
+All four of the issuer, client ID, client secret, and redirect URL must be provided for authentication to be enabled. The redirect URL must exactly match the value configured for your OIDC client.
+
+If `--oidc-groups` is omitted, users from any group are allowed. If `--oidc-scopes` is omitted, the default scopes are "openid,profile,email" (plus "groups" if --oidc-groups is set). You can override the scopes entirely by providing custom values. If `--oidc-log-claims` is omitted, only the "sub" (subject) claim is logged with requests.
+
+Example YAML configuration:
+
+```yaml
+oidc-issuer: https://auth.example.com
+oidc-client-id: my-app
+oidc-client-secret: super-secret
+oidc-redirect-url: https://my-app.example.com/callback
+oidc-groups:
+  - admins
+  - operators
+# Optional: override default scopes
+oidc-scopes:
+  - openid
+  - profile
+  - email
+# Optional: customize claims shown in logs (defaults to sub)
+oidc-log-claims:
+  - email
+  - name
+```
+
+## Lambda Deployment
+
+For AWS Lambda deployment, you must provide a session secret to ensure session consistency across Lambda instances:
+
+```bash
+# Generate a session secret
+openssl rand -hex 32
+
+# Set as environment variable
+export RIVER_GUIDE_SESSION_SECRET=1a38fb587ba3a0a88d4d9a5081a594f014a263cd49829ba15d75d09e2b234480
+
+# Or pass as flag
+river-guide --session-secret 1a38fb587ba3a0a88d4d9a5081a594f014a263cd49829ba15d75d09e2b234480
+```
+
+**Important**: The session secret must be exactly 64 hex characters (32 bytes). Without a consistent session secret, users will be logged out between Lambda cold starts.
+
 ## API
 
 The application provides the following endpoints:
 
-- `GET /`: The main interface for managing AWS EC2 instances.
-- `GET /favicon.ico`: Endpoint for serving favicon.
-- `POST /toggle`: Endpoint for toggling the start/stop state of all instances.
+- `GET /`: The main interface for managing cloud instances (shows landing page if OIDC is enabled and user is unauthenticated).
+- `GET /favicon.ico`: Serves the favicon.
+- `POST /toggle?action=start`: Start all instances. Returns 200 (no-op) if already running, 409 if transitioning.
+- `POST /toggle?action=stop`: Stop all instances. Returns 200 (no-op) if already stopped, 409 if transitioning.
+- `GET /login`: Initiates OIDC login flow (only when OIDC is enabled).
+- `POST /logout`: Clears session and redirects to landing page (only when OIDC is enabled).
+- `GET /callback`: OIDC callback endpoint (only when OIDC is enabled).
 
 ## To Do
 
