@@ -454,6 +454,12 @@ var landingTemplate string
 //go:embed assets/error.gohtml
 var errorTemplate string
 
+var (
+	indexTmpl   = template.Must(template.New("index").Parse(indexTemplate))
+	landingTmpl = template.Must(template.New("landing").Parse(landingTemplate))
+	errorTmpl   = template.Must(template.New("error").Parse(errorTemplate))
+)
+
 // ErrorPageData represents data for the error page template
 type ErrorPageData struct {
 	Title            string
@@ -473,7 +479,7 @@ type ErrorPageData struct {
 
 // RenderErrorPage renders a user-friendly error page
 func RenderErrorPage(w http.ResponseWriter, r *http.Request, statusCode int, title, subtitle, message string, errorType string) {
-	tmpl := template.Must(template.New("error").Parse(errorTemplate))
+	tmpl := errorTmpl
 
 	data := ErrorPageData{
 		Title:           title,
@@ -505,7 +511,7 @@ func RenderErrorPage(w http.ResponseWriter, r *http.Request, statusCode int, tit
 
 // IndexHandler handles the index page.
 func (h *APIHandler) IndexHandler(w http.ResponseWriter, r *http.Request) {
-	tmpl := template.Must(template.New("index").Parse(indexTemplate))
+	tmpl := indexTmpl
 	sb, err := h.GetServerBank(viper.GetStringMapString("tags"))
 	if err != nil {
 		log.Printf("IndexHandler: failed to get server bank: %v", err)
@@ -566,7 +572,7 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, r *http.Request) {
 
 // LandingHandler serves the landing page prompting for login.
 func LandingHandler(w http.ResponseWriter, _ *http.Request) {
-	tmpl := template.Must(template.New("landing").Parse(landingTemplate))
+	tmpl := landingTmpl
 	data := struct {
 		Title           string
 		AccentColor     string
@@ -595,7 +601,8 @@ func (h *APIHandler) ToggleHandler(w http.ResponseWriter, r *http.Request) {
 
 	sb, err := h.GetServerBank(viper.GetStringMapString("tags"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Errorf("ToggleHandler: failed to get server bank: %v", err)
+		http.Error(w, "failed to query instances", http.StatusInternalServerError)
 		return
 	}
 
@@ -622,7 +629,8 @@ func (h *APIHandler) ToggleHandler(w http.ResponseWriter, r *http.Request) {
 		err = h.PowerOffAll(sb)
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Errorf("ToggleHandler: %s failed: %v", action, err)
+		http.Error(w, "failed to "+action+" instances", http.StatusInternalServerError)
 		return
 	}
 

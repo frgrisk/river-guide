@@ -64,7 +64,11 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "failed to start keycloak container: %v\n", err)
 		os.Exit(1)
 	}
-	defer testcontainers.CleanupContainer(nil, container) //nolint:errcheck
+	defer func() {
+		if err := container.Terminate(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to terminate keycloak container: %v\n", err)
+		}
+	}()
 
 	host, err := container.Host(ctx)
 	if err != nil {
