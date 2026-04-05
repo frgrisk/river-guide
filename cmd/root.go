@@ -1076,7 +1076,7 @@ func serve() {
 			sessionStore = sessions.NewCookieStore(sessionKey)
 		} else {
 			// Regular deployment - use FilesystemStore
-			fsStore := sessions.NewFilesystemStore("", sessionKey)
+			fsStore := sessions.NewFilesystemStore(os.TempDir(), sessionKey)
 			fsStore.MaxLength(sessionMaxLength)
 			sessionStore = fsStore
 		}

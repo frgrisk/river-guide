@@ -468,7 +468,7 @@ func doOIDCLogin(t *testing.T, client *http.Client, serverURL, username, passwor
 	// Step 2: Follow redirects to Keycloak login page.
 	// Keycloak may issue multiple redirects before showing the login form.
 	// Use a separate client that follows redirects to get the final HTML page.
-	followClient := &http.Client{Jar: client.Jar}
+	followClient := &http.Client{Jar: client.Jar, Timeout: testHTTPTimeout}
 	resp, err = followClient.Get(authURL)
 	if err != nil {
 		t.Fatalf("GET keycloak auth URL failed: %v", err)

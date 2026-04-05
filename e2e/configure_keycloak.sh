@@ -2,7 +2,7 @@
 # Configures Keycloak for river-guide OIDC integration testing.
 # Creates a realm, OIDC client, groups, and test users.
 #
-# Usage: ./configure_keycloak.sh [--keycloak-url URL] [--redirect-uris URIS]
+# Usage: ./e2e/configure_keycloak.sh [--keycloak-url URL] [--redirect-uris URIS]
 
 set -Eeuo pipefail
 trap 'printf "ERROR: Script failed on line %s\n" "$LINENO" >&2' ERR
