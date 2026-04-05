@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -140,7 +141,7 @@ func kcAPI(method, url string, body interface{}) (*http.Response, error) {
 		if err != nil {
 			return nil, err
 		}
-		reqBody = strings.NewReader(string(b))
+		reqBody = bytes.NewReader(b)
 	}
 	req, err := http.NewRequest(method, url, reqBody)
 	if err != nil {
