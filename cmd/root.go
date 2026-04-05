@@ -30,7 +30,6 @@ import (
 	"html/template"
 	"net/http"
 	"os"
-	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -118,9 +117,14 @@ func (l *UserAwareLogger) ServeHTTP(rw http.ResponseWriter, r *http.Request, nex
 
 	userInfo := ""
 	if claims, ok := r.Context().Value(userSubjectKey).(map[string]string); ok && len(claims) > 0 {
+		keys := make([]string, 0, len(claims))
+		for key := range claims {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
 		parts := make([]string, 0, len(claims))
-		for key, value := range claims {
-			parts = append(parts, fmt.Sprintf("%s=%s", key, value))
+		for _, key := range keys {
+			parts = append(parts, fmt.Sprintf("%s=%s", key, claims[key]))
 		}
 		userInfo = fmt.Sprintf(" user=%s", strings.Join(parts, ","))
 	}
@@ -474,7 +478,6 @@ type ErrorPageData struct {
 	ShowRetry        bool
 	ShowHome         bool
 	ShowLogout       bool
-	ShowContact      bool
 }
 
 // RenderErrorPage renders a user-friendly error page
@@ -489,9 +492,8 @@ func RenderErrorPage(w http.ResponseWriter, r *http.Request, statusCode int, tit
 		ShowRetry:       true,
 		ShowHome:        true,
 		ShowLogout:      oidcEnabled,
-		ShowContact:     true,
 		HomePath:        viper.GetString("path-prefix"),
-		LogoutPath:      path.Join(viper.GetString("path-prefix"), "logout"),
+		LogoutPath:      pathFor("logout"),
 		AccentColor:     viper.GetString("accent-color"),
 		BackgroundColor: viper.GetString("background-color"),
 	}
@@ -543,8 +545,8 @@ func (h *APIHandler) IndexHandler(w http.ResponseWriter, r *http.Request) {
 		ActionText:      "Pending",
 		AccentColor:     viper.GetString("accent-color"),
 		BackgroundColor: viper.GetString("background-color"),
-		TogglePath:      path.Join(viper.GetString("path-prefix"), "toggle"),
-		LogoutPath:      path.Join(viper.GetString("path-prefix"), "logout"),
+		TogglePath:      pathFor("toggle"),
+		LogoutPath:      pathFor("logout"),
 		OIDCEnabled:     oidcEnabled,
 	}
 
@@ -584,7 +586,7 @@ func LandingHandler(w http.ResponseWriter, _ *http.Request) {
 		AccentColor:     viper.GetString("accent-color"),
 		BackgroundColor: viper.GetString("background-color"),
 		Logo:            viper.GetString("logo"),
-		LoginPath:       path.Join(viper.GetString("path-prefix"), "login"),
+		LoginPath:       pathFor("login"),
 	}
 	if err := tmpl.Execute(w, data); err != nil {
 		log.Errorf("LandingHandler: failed to render: %v", err)
