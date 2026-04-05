@@ -100,21 +100,27 @@ func (l *UserAwareLogger) ServeHTTP(rw http.ResponseWriter, r *http.Request, nex
 	}
 
 	userInfo := ""
-	if claims := r.Context().Value(userSubjectKey); claims != nil {
-		if claimsMap, ok := claims.(map[string]string); ok && len(claimsMap) > 0 {
-			parts := make([]string, 0, len(claimsMap))
-			for key, value := range claimsMap {
-				parts = append(parts, fmt.Sprintf("%s=%s", key, value))
-			}
-			userInfo = fmt.Sprintf(" user=%s", strings.Join(parts, ","))
+	if claims, ok := r.Context().Value(userSubjectKey).(map[string]string); ok && len(claims) > 0 {
+		parts := make([]string, 0, len(claims))
+		for key, value := range claims {
+			parts = append(parts, fmt.Sprintf("%s=%s", key, value))
 		}
+		userInfo = fmt.Sprintf(" user=%s", strings.Join(parts, ","))
 	}
 	next(rw, r)
 	res := rw.(negroni.ResponseWriter)
-	l.Printf("%s %s%s from=%s -> %d %s in %v",
+
+	actionInfo := ""
+	if action := rw.Header().Get("X-Toggle-Action"); action != "" {
+		actionInfo = fmt.Sprintf(" action=%s", action)
+		rw.Header().Del("X-Toggle-Action")
+	}
+
+	l.Printf("%s %s%s%s from=%s -> %d %s in %v",
 		r.Method,
 		r.URL.RequestURI(),
 		userInfo,
+		actionInfo,
 		sourceIP,
 		res.Status(),
 		http.StatusText(res.Status()),
@@ -564,21 +570,21 @@ func (h *APIHandler) ToggleHandler(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	status := sb.GetStatus()
+	var action string
 	if status == string(types.InstanceStateNameRunning) {
+		action = "stop"
 		err = h.PowerOffAll(sb)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
 	} else {
+		action = "start"
 		err = h.PowerOnAll(sb)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
 	}
 
-	// Return success response
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("X-Toggle-Action", action)
+
 	w.WriteHeader(http.StatusOK)
 }
 
