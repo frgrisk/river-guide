@@ -116,6 +116,7 @@ ctx := context.WithValue(r.Context(), userSubjectKey, userLogClaims)
 Run `./e2e/keycloak.sh` to start a local Keycloak instance with TLS (via mkcert), pre-configured with a realm, OIDC client, groups, and test users. The script prints a ready-to-use `go run` command with all OIDC flags filled in.
 
 Integration tests run against a real Keycloak container via testcontainers-go:
+
 - `go test -tags integration -timeout 5m ./cmd/...`
 - These are excluded from `go test ./...` by the `//go:build integration` tag
 
