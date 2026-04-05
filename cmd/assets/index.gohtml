@@ -418,10 +418,14 @@
       async function toggleServer() {
         try {
           const btn = document.querySelector(".btn");
+          const action = btn.textContent.trim().toLowerCase();
           btn.classList.add("loading");
           document.getElementById("loading-indicator").style.display =
             "inline-block";
-          await fetchFromServer("{{ .TogglePath }}", "POST");
+          await fetchFromServer(
+            "{{ .TogglePath }}?action=" + action,
+            "POST",
+          );
           location.reload();
         } catch (error) {
           alert(error.message);

@@ -137,6 +137,9 @@ const (
 
 	EC2 ServerType = "EC2"
 	RDS ServerType = "RDS"
+
+	actionStart = "start"
+	actionStop  = "stop"
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -562,29 +565,48 @@ func LandingHandler(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-// ToggleHandler handles the start/stop button toggle.
-func (h *APIHandler) ToggleHandler(w http.ResponseWriter, _ *http.Request) {
+// ToggleHandler handles explicit start/stop requests.
+func (h *APIHandler) ToggleHandler(w http.ResponseWriter, r *http.Request) {
+	action := r.URL.Query().Get("action")
+	if action != actionStart && action != actionStop {
+		http.Error(w, "action parameter must be 'start' or 'stop'", http.StatusBadRequest)
+		return
+	}
+
 	sb, err := h.GetServerBank(viper.GetStringMapString("tags"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	status := sb.GetStatus()
-	var action string
-	if status == string(types.InstanceStateNameRunning) {
-		action = "stop"
-		err = h.PowerOffAll(sb)
-	} else {
-		action = "start"
-		err = h.PowerOnAll(sb)
+
+	// No-op if instances are already in the requested state
+	if (action == actionStart && status == string(types.InstanceStateNameRunning)) ||
+		(action == actionStop && status == string(types.InstanceStateNameStopped)) {
+		w.Header().Set("X-Toggle-Action", action+":no-op")
+		w.WriteHeader(http.StatusOK)
+		return
 	}
 
+	// Reject if instances are transitioning
+	if status == string(types.InstanceStateNamePending) ||
+		status == string(types.InstanceStateNameStopping) {
+		http.Error(w, "instances are transitioning, try again shortly", http.StatusConflict)
+		return
+	}
+
+	if action == actionStart {
+		err = h.PowerOnAll(sb)
+	} else {
+		err = h.PowerOffAll(sb)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("X-Toggle-Action", action)
 
+	w.Header().Set("X-Toggle-Action", action)
 	w.WriteHeader(http.StatusOK)
 }
 
