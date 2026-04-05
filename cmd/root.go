@@ -67,6 +67,23 @@ type contextKey string
 
 const userSubjectKey contextKey = "user_subject"
 
+// normalizePathPrefix ensures the path prefix ends with "/" and defaults to "/".
+func normalizePathPrefix() string {
+	p := viper.GetString("path-prefix")
+	if p == "" {
+		return "/"
+	}
+	if !strings.HasSuffix(p, "/") {
+		p += "/"
+	}
+	return p
+}
+
+// pathFor builds an absolute path by joining the path prefix with a route name.
+func pathFor(route string) string {
+	return strings.TrimSuffix(viper.GetString("path-prefix"), "/") + "/" + route
+}
+
 var (
 	cfgFile        string
 	subscriptionID string
@@ -666,18 +683,11 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Clear the session cookie manually as well
-	pathPrefix := viper.GetString("path-prefix")
-	if pathPrefix == "" {
-		pathPrefix = "/"
-	} else if !strings.HasSuffix(pathPrefix, "/") {
-		pathPrefix += "/"
-	}
-
+	// Clear the session cookie manually as a fallback
 	http.SetCookie(w, &http.Cookie{
 		Name:     "oidc",
 		Value:    "",
-		Path:     pathPrefix,
+		Path:     normalizePathPrefix(),
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   strings.HasPrefix(viper.GetString("oidc-redirect-url"), "https://"),
@@ -888,25 +898,17 @@ func clearSessionAndRedirectToLogin(w http.ResponseWriter, r *http.Request, logM
 	}
 
 	// Also clear the session cookie manually as a fallback
-	pathPrefix := viper.GetString("path-prefix")
-	if pathPrefix == "" {
-		pathPrefix = "/"
-	} else if !strings.HasSuffix(pathPrefix, "/") {
-		pathPrefix += "/"
-	}
-
 	http.SetCookie(w, &http.Cookie{
 		Name:     "oidc",
 		Value:    "",
-		Path:     pathPrefix,
+		Path:     normalizePathPrefix(),
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   r.TLS != nil || strings.Contains(strings.ToLower(r.Header.Get("X-Forwarded-Proto")), "https"),
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	loginPath := strings.TrimSuffix(viper.GetString("path-prefix"), "/") + "/login"
-	http.Redirect(w, r, loginPath, http.StatusFound)
+	http.Redirect(w, r, pathFor("login"), http.StatusFound)
 }
 
 // AuthMiddleware implements negroni.Handler for OIDC authentication
@@ -917,10 +919,9 @@ func (a *AuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next 
 		next(w, r)
 		return
 	}
-	pathPrefix := viper.GetString("path-prefix")
-	reqPath := strings.TrimPrefix(r.URL.Path, pathPrefix)
+	reqPath := strings.TrimPrefix(r.URL.Path, viper.GetString("path-prefix"))
 	reqPath = strings.TrimPrefix(reqPath, "/")
-	if reqPath == "login" || reqPath == "logout" || reqPath == "callback" || reqPath == "favicon.ico" || strings.HasPrefix(reqPath, "login") || strings.HasPrefix(reqPath, "logout") || strings.HasPrefix(reqPath, "callback") {
+	if strings.HasPrefix(reqPath, "login") || strings.HasPrefix(reqPath, "logout") || strings.HasPrefix(reqPath, "callback") || reqPath == "favicon.ico" {
 		next(w, r)
 		return
 	}
@@ -934,15 +935,13 @@ func (a *AuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next 
 		if r.Method == http.MethodGet && (reqPath == "" || reqPath == "/") {
 			LandingHandler(w, r)
 		} else {
-			loginPath := strings.TrimSuffix(pathPrefix, "/") + "/login"
-			http.Redirect(w, r, loginPath, http.StatusFound)
+			http.Redirect(w, r, pathFor("login"), http.StatusFound)
 		}
 		return
 	}
 	expiry, _ := session.Values["token_expiry"].(int64)
 	if expiry > 0 && time.Now().Unix() > expiry {
-		loginPath := strings.TrimSuffix(viper.GetString("path-prefix"), "/") + "/login"
-		http.Redirect(w, r, loginPath, http.StatusFound)
+		http.Redirect(w, r, pathFor("login"), http.StatusFound)
 		return
 	}
 	// Check group authorization if required
@@ -1068,38 +1067,23 @@ func serve() {
 			fsStore.MaxLength(sessionMaxLength)
 			sessionStore = fsStore
 		}
-		pathPrefix := viper.GetString("path-prefix")
-		if pathPrefix == "" {
-			pathPrefix = "/"
-		} else if !strings.HasSuffix(pathPrefix, "/") {
-			pathPrefix += "/"
+		pathPrefix := normalizePathPrefix()
+		sessionMaxAge := viper.GetInt("session-max-age")
+		sessionOpts := &sessions.Options{
+			Path:     pathPrefix,
+			MaxAge:   sessionMaxAge,
+			HttpOnly: true,
+			Secure:   strings.HasPrefix(oidcRedirectURL, "https://"),
+			SameSite: http.SameSiteLaxMode,
 		}
 
-		// Get configurable session max age
-		sessionMaxAge := viper.GetInt("session-max-age")
-
-		// Set session options based on store type
 		switch store := sessionStore.(type) {
 		case *sessions.CookieStore:
-			// CookieStore (Lambda)
-			store.Options = &sessions.Options{
-				Path:     pathPrefix,
-				MaxAge:   sessionMaxAge,
-				HttpOnly: true,
-				Secure:   strings.HasPrefix(oidcRedirectURL, "https://"),
-				SameSite: http.SameSiteLaxMode,
-			}
+			store.Options = sessionOpts
 		case *sessions.FilesystemStore:
-			// FilesystemStore (regular deployment)
-			store.Options = &sessions.Options{
-				Path:     pathPrefix,
-				MaxAge:   sessionMaxAge,
-				HttpOnly: true,
-				Secure:   strings.HasPrefix(oidcRedirectURL, "https://"),
-				SameSite: http.SameSiteLaxMode,
-			}
+			store.Options = sessionOpts
 		}
-		log.Printf("OIDC session configuration: Path=%s, Secure=%v, MaxAge=%d", pathPrefix, strings.HasPrefix(oidcRedirectURL, "https://"), sessionMaxAge)
+		log.Printf("OIDC session configuration: Path=%s, Secure=%v, MaxAge=%d", pathPrefix, sessionOpts.Secure, sessionMaxAge)
 	}
 
 	var cloudProvider CloudProvider

@@ -129,7 +129,7 @@ func getKeycloakToken(baseURL, realm, username, password string) (string, error)
 }
 
 func kcAPI(method, url string, body interface{}) (*http.Response, error) {
-	var reqBody io.Reader
+	var reqBody io.Reader = http.NoBody
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
