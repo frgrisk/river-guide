@@ -478,13 +478,6 @@ func doOIDCLogin(t *testing.T, client *http.Client, serverURL, username, passwor
 	}
 
 	// Step 3: Submit credentials to Keycloak
-	formActionURL, _ := url.Parse(formAction)
-	kcBaseURL, _ := url.Parse(kc.issuerURL)
-	t.Logf("Form action: %s", formAction)
-	t.Logf("Cookies for form action URL: %v", client.Jar.Cookies(formActionURL))
-	t.Logf("Cookies for KC base URL (%s): %v", kcBaseURL, client.Jar.Cookies(kcBaseURL))
-	t.Logf("Cookies for server URL (%s): %v", serverURL, client.Jar.Cookies(&url.URL{Scheme: "http", Host: formActionURL.Host}))
-
 	formData := url.Values{
 		"username": {username},
 		"password": {password},
