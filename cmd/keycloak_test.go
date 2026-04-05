@@ -477,17 +477,16 @@ func doOIDCLogin(t *testing.T, client *http.Client, serverURL, username, passwor
 		t.Fatal("could not find form action in Keycloak login page")
 	}
 
-	// Step 3: Submit credentials to Keycloak.
-	// Use a no-redirect client with the same jar so we can inspect the redirect response.
-	kcClient := &http.Client{
-		Jar:           client.Jar,
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
-	}
+	// Step 3: Submit credentials to Keycloak
+	formActionURL, _ := url.Parse(formAction)
+	t.Logf("Form action: %s", formAction)
+	t.Logf("Cookies for form action URL: %v", client.Jar.Cookies(formActionURL))
+
 	formData := url.Values{
 		"username": {username},
 		"password": {password},
 	}
-	resp, err = kcClient.PostForm(formAction, formData)
+	resp, err = client.PostForm(formAction, formData)
 	if err != nil {
 		t.Fatalf("POST keycloak login form failed: %v", err)
 	}
