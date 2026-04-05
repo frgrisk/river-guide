@@ -116,7 +116,8 @@ func getKeycloakToken(baseURL, realm, username, password string) (string, error)
 		"username":   {username},
 		"password":   {password},
 	}
-	resp, err := http.PostForm(fmt.Sprintf("%s/realms/%s/protocol/openid-connect/token", baseURL, realm), data)
+	client := &http.Client{Timeout: testHTTPTimeout}
+	resp, err := client.PostForm(fmt.Sprintf("%s/realms/%s/protocol/openid-connect/token", baseURL, realm), data)
 	if err != nil {
 		return "", fmt.Errorf("token request failed: %w", err)
 	}
@@ -147,7 +148,8 @@ func kcAPI(method, url string, body interface{}) (*http.Response, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+kc.adminToken)
 	req.Header.Set("Content-Type", "application/json")
-	return http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: testHTTPTimeout}
+	return client.Do(req)
 }
 
 func configureKeycloak(baseURL string) error {
@@ -423,11 +425,14 @@ func setupTestServer(t *testing.T, groups []string) *httptest.Server {
 
 // --- OIDC flow simulation ---
 
-// newOIDCClient creates an http.Client with a cookie jar that does NOT auto-follow redirects.
+const testHTTPTimeout = 30 * time.Second
+
+// newNoRedirectClient creates an http.Client with a cookie jar that does NOT auto-follow redirects.
 func newNoRedirectClient() *http.Client {
 	jar, _ := cookiejar.New(nil)
 	return &http.Client{
-		Jar: jar,
+		Jar:     jar,
+		Timeout: testHTTPTimeout,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
@@ -437,7 +442,7 @@ func newNoRedirectClient() *http.Client {
 // newFollowClient creates an http.Client with a cookie jar that follows redirects normally.
 func newFollowClient() *http.Client {
 	jar, _ := cookiejar.New(nil)
-	return &http.Client{Jar: jar}
+	return &http.Client{Jar: jar, Timeout: testHTTPTimeout}
 }
 
 // doOIDCLogin performs the full OIDC login flow: hit /login, follow to Keycloak,

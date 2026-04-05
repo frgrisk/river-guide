@@ -587,7 +587,8 @@ func LandingHandler(w http.ResponseWriter, _ *http.Request) {
 		LoginPath:       path.Join(viper.GetString("path-prefix"), "login"),
 	}
 	if err := tmpl.Execute(w, data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Errorf("LandingHandler: failed to render: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
 	}
 }
 
@@ -616,9 +617,8 @@ func (h *APIHandler) ToggleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Reject if instances are transitioning
-	if status == string(types.InstanceStateNamePending) ||
-		status == string(types.InstanceStateNameStopping) {
+	// Reject if instances are transitioning (GetStatus collapses stopping into pending)
+	if status == string(types.InstanceStateNamePending) {
 		http.Error(w, "instances are transitioning, try again shortly", http.StatusConflict)
 		return
 	}
