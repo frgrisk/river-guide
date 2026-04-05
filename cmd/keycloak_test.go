@@ -46,7 +46,7 @@ func TestMain(m *testing.M) {
 	ctx := context.Background()
 
 	req := testcontainers.ContainerRequest{
-		Image:        "quay.io/keycloak/keycloak:26.0",
+		Image:        "quay.io/keycloak/keycloak:latest",
 		ExposedPorts: []string{"8080/tcp"},
 		Cmd:          []string{"start-dev"},
 		Env: map[string]string{
@@ -201,16 +201,16 @@ func configureKeycloak(baseURL string) error {
 
 	// Add groups protocol mapper
 	resp, err = kcAPI("POST", fmt.Sprintf("%s/realms/%s/clients/%s/protocol-mappers/models", adminAPI, kc.realm, clientInternalID), map[string]interface{}{
-		"name":            "groups",
-		"protocol":        "openid-connect",
-		"protocolMapper":  "oidc-group-membership-mapper",
+		"name":           "groups",
+		"protocol":       "openid-connect",
+		"protocolMapper": "oidc-group-membership-mapper",
 		"config": map[string]string{
-			"full.path":                  "false",
-			"introspection.token.claim":  "true",
-			"userinfo.token.claim":       "true",
-			"id.token.claim":             "true",
-			"access.token.claim":         "true",
-			"claim.name":                 "groups",
+			"full.path":                 "false",
+			"introspection.token.claim": "true",
+			"userinfo.token.claim":      "true",
+			"id.token.claim":            "true",
+			"access.token.claim":        "true",
+			"claim.name":                "groups",
 		},
 	})
 	if err != nil {
