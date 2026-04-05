@@ -49,7 +49,7 @@ go test ./...
 
 ### Session Management
 
-- Uses CookieStore for session storage (signed/encrypted cookies, no server-side files)
+- Lambda uses CookieStore; non-Lambda uses FilesystemStore (larger session capacity)
 - Lambda requires `--session-secret` (fails fast if missing); non-Lambda generates a random key if not provided
 - Session cookies should be HttpOnly, Secure (for HTTPS), SameSite=Lax
 - Store: `authenticated` flag, `is_authorized`, `authorized_group`, `token_expiry`, and individual claim keys
@@ -60,7 +60,7 @@ go test ./...
 
 - All OIDC params (issuer, client-id, client-secret, redirect-url) must be provided together
 - Scopes are configurable with sensible defaults
-- Only request "groups" scope if group filtering is configured
+- Default scopes: openid, profile, email (plus "groups" if `--oidc-groups` is set). Override with `--oidc-scopes` if the provider doesn't support a "groups" scope (e.g., Keycloak uses a protocol mapper instead).
 - Validate redirect URL format for cookie security settings
 
 ## Error Handling Patterns
@@ -90,7 +90,7 @@ if err != nil {
 The application includes user identification in request logs:
 
 - Anonymous: `"GET / -> 200 OK in 5ms"`
-- Authenticated: `"GET /toggle user=john.doe@company.com -> 200 OK in 12ms"`
+- Authenticated: `"POST /toggle user=john.doe@company.com action=stop -> 200 OK in 12ms"`
 
 ### Context Usage
 
@@ -110,6 +110,14 @@ ctx := context.WithValue(r.Context(), userSubjectKey, userLogClaims)
 ```
 
 ## Development Workflow
+
+### Testing with Keycloak
+
+Run `./e2e/keycloak.sh` to start a local Keycloak instance with TLS (via mkcert), pre-configured with a realm, OIDC client, groups, and test users. The script prints a ready-to-use `go run` command with all OIDC flags filled in.
+
+Integration tests run against a real Keycloak container via testcontainers-go:
+- `go test -tags integration -timeout 5m ./cmd/...`
+- These are excluded from `go test ./...` by the `//go:build integration` tag
 
 ### Before Committing
 
@@ -149,6 +157,24 @@ ctx := context.WithValue(r.Context(), userSubjectKey, userLogClaims)
 - UI uses configurable `--accent-color` and `--background-color` (no `--primary-color`)
 - To test without OIDC auth, run without OIDC flags to access the dashboard directly
 - Use `agent-browser` (not Playwright MCP) for visual testing: `agent-browser open <url> && agent-browser screenshot page.png`
+
+### Toggle Endpoint
+
+- `POST /toggle?action=start` or `POST /toggle?action=stop` (explicit, not stateless)
+- Returns 200 no-op if instances are already in the requested state
+- Returns 409 Conflict if instances are transitioning
+- Action is logged via `X-Toggle-Action` response header (read by `UserAwareLogger`, deleted before reaching client)
+
+### Path Helpers
+
+- `normalizePathPrefix()` ensures path prefix ends with "/" and defaults to "/"
+- `pathFor(route)` builds absolute paths by joining the path prefix with a route name
+- Use these instead of inline path normalization
+
+### TLS
+
+- `--tls-cert` and `--tls-key` enable HTTPS (enforced together via `MarkFlagsRequiredTogether`)
+- For local dev, `./e2e/keycloak.sh` generates mkcert certs for both Keycloak and the app
 
 ### Security Considerations
 

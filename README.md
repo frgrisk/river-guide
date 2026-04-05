@@ -264,9 +264,13 @@ river-guide --session-secret 1a38fb587ba3a0a88d4d9a5081a594f014a263cd49829ba15d7
 
 The application provides the following endpoints:
 
-- `GET /`: The main interface for managing AWS EC2 instances.
-- `GET /favicon.ico`: Endpoint for serving favicon.
-- `POST /toggle`: Endpoint for toggling the start/stop state of all instances.
+- `GET /`: The main interface for managing cloud instances (shows landing page if OIDC is enabled and user is unauthenticated).
+- `GET /favicon.ico`: Serves the favicon.
+- `POST /toggle?action=start`: Start all instances. Returns 200 (no-op) if already running, 409 if transitioning.
+- `POST /toggle?action=stop`: Stop all instances. Returns 200 (no-op) if already stopped, 409 if transitioning.
+- `GET /login`: Initiates OIDC login flow (only when OIDC is enabled).
+- `POST /logout`: Clears session and redirects to landing page (only when OIDC is enabled).
+- `GET /callback`: OIDC callback endpoint (only when OIDC is enabled).
 
 ## To Do
 
