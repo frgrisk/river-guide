@@ -88,8 +88,8 @@ func TestMain(m *testing.M) {
 		container: container,
 		realm:     "river-guide-test",
 		clientID:  "river-guide",
+		baseURL:   baseURL,
 	}
-	kc.baseURL = baseURL
 	kc.issuerURL = fmt.Sprintf("%s/realms/%s", baseURL, kc.realm)
 
 	// Get admin token
@@ -123,7 +123,7 @@ func getKeycloakToken(baseURL, realm, username, password string) (string, error)
 		return "", fmt.Errorf("token request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	var result map[string]interface{}
+	var result map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", fmt.Errorf("failed to decode token response: %w", err)
 	}
@@ -134,7 +134,7 @@ func getKeycloakToken(baseURL, realm, username, password string) (string, error)
 	return token, nil
 }
 
-func kcAPI(method, url string, body interface{}) (*http.Response, error) {
+func kcAPI(method, url string, body any) (*http.Response, error) {
 	var reqBody io.Reader = http.NoBody
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -157,7 +157,7 @@ func configureKeycloak(baseURL string) error {
 	adminAPI := baseURL + "/admin"
 
 	// Create realm
-	resp, err := kcAPI("POST", adminAPI+"/realms", map[string]interface{}{
+	resp, err := kcAPI("POST", adminAPI+"/realms", map[string]any{
 		"realm":   kc.realm,
 		"enabled": true,
 	})
@@ -167,7 +167,7 @@ func configureKeycloak(baseURL string) error {
 	resp.Body.Close()
 
 	// Create OIDC client (redirect URIs will be updated per-test)
-	resp, err = kcAPI("POST", fmt.Sprintf("%s/realms/%s/clients", adminAPI, kc.realm), map[string]interface{}{
+	resp, err = kcAPI("POST", fmt.Sprintf("%s/realms/%s/clients", adminAPI, kc.realm), map[string]any{
 		"clientId":                  kc.clientID,
 		"protocol":                  "openid-connect",
 		"publicClient":              false,
@@ -187,7 +187,7 @@ func configureKeycloak(baseURL string) error {
 	if err != nil {
 		return fmt.Errorf("get client: %w", err)
 	}
-	var clients []map[string]interface{}
+	var clients []map[string]any
 	json.NewDecoder(resp.Body).Decode(&clients) //nolint:errcheck
 	resp.Body.Close()
 	if len(clients) == 0 {
@@ -201,13 +201,13 @@ func configureKeycloak(baseURL string) error {
 	if err != nil {
 		return fmt.Errorf("get client secret: %w", err)
 	}
-	var secretResp map[string]interface{}
+	var secretResp map[string]any
 	json.NewDecoder(resp.Body).Decode(&secretResp) //nolint:errcheck
 	resp.Body.Close()
 	kc.clientSecret = secretResp["value"].(string)
 
 	// Add groups protocol mapper
-	resp, err = kcAPI("POST", fmt.Sprintf("%s/realms/%s/clients/%s/protocol-mappers/models", adminAPI, kc.realm, clientInternalID), map[string]interface{}{
+	resp, err = kcAPI("POST", fmt.Sprintf("%s/realms/%s/clients/%s/protocol-mappers/models", adminAPI, kc.realm, clientInternalID), map[string]any{
 		"name":           "groups",
 		"protocol":       "openid-connect",
 		"protocolMapper": "oidc-group-membership-mapper",
@@ -227,7 +227,7 @@ func configureKeycloak(baseURL string) error {
 
 	// Create groups
 	for _, group := range []string{"allowed-group", "denied-group"} {
-		resp, err = kcAPI("POST", fmt.Sprintf("%s/realms/%s/groups", adminAPI, kc.realm), map[string]interface{}{
+		resp, err = kcAPI("POST", fmt.Sprintf("%s/realms/%s/groups", adminAPI, kc.realm), map[string]any{
 			"name": group,
 		})
 		if err != nil {
@@ -241,7 +241,7 @@ func configureKeycloak(baseURL string) error {
 	if err != nil {
 		return fmt.Errorf("get groups: %w", err)
 	}
-	var groups []map[string]interface{}
+	var groups []map[string]any
 	json.NewDecoder(resp.Body).Decode(&groups) //nolint:errcheck
 	resp.Body.Close()
 
@@ -260,14 +260,14 @@ func configureKeycloak(baseURL string) error {
 	}
 
 	for _, u := range users {
-		resp, err = kcAPI("POST", fmt.Sprintf("%s/realms/%s/users", adminAPI, kc.realm), map[string]interface{}{
+		resp, err = kcAPI("POST", fmt.Sprintf("%s/realms/%s/users", adminAPI, kc.realm), map[string]any{
 			"username":      u.username,
 			"firstName":     u.username,
 			"lastName":      "Test",
 			"enabled":       true,
 			"emailVerified": true,
 			"email":         u.username + "@test.example.com",
-			"credentials": []map[string]interface{}{
+			"credentials": []map[string]any{
 				{"type": "password", "value": "testpass", "temporary": false},
 			},
 		})
@@ -281,7 +281,7 @@ func configureKeycloak(baseURL string) error {
 		if err != nil {
 			return fmt.Errorf("get user %s: %w", u.username, err)
 		}
-		var foundUsers []map[string]interface{}
+		var foundUsers []map[string]any
 		json.NewDecoder(resp.Body).Decode(&foundUsers) //nolint:errcheck
 		resp.Body.Close()
 		if len(foundUsers) == 0 {
@@ -311,7 +311,7 @@ func updateClientRedirectURIs(serverURL string) error {
 	if err != nil {
 		return fmt.Errorf("get client: %w", err)
 	}
-	var clientConfig map[string]interface{}
+	var clientConfig map[string]any
 	json.NewDecoder(resp.Body).Decode(&clientConfig) //nolint:errcheck
 	resp.Body.Close()
 
@@ -334,8 +334,7 @@ func updateClientRedirectURIs(serverURL string) error {
 func setupTestServer(t *testing.T, groups []string) *httptest.Server {
 	t.Helper()
 
-	ctx := context.Background()
-	provider, err := oidc.NewProvider(ctx, kc.issuerURL)
+	provider, err := oidc.NewProvider(t.Context(), kc.issuerURL)
 	if err != nil {
 		t.Fatalf("failed to create OIDC provider: %v", err)
 	}
