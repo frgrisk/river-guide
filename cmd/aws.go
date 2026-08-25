@@ -1,10 +1,11 @@
 package cmd
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 
 	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
 	"golang.org/x/sync/errgroup"
@@ -57,8 +58,8 @@ func (h *AWSProvider) GetServerBank(tags map[string]string) (*ServerBank, error)
 	}
 
 	// Sort servers by name
-	sort.Slice(serverBank.Servers, func(i, j int) bool {
-		return serverBank.Servers[i].Name < serverBank.Servers[j].Name
+	slices.SortFunc(serverBank.Servers, func(a, b *Server) int {
+		return cmp.Compare(a.Name, b.Name)
 	})
 
 	return serverBank, nil
@@ -69,12 +70,12 @@ func (h *AWSProvider) GetEC2Instances(tags map[string]string) ([]*Server, error)
 	filters := make([]types.Filter, 0, len(tags)+1)
 	for key, value := range tags {
 		filters = append(filters, types.Filter{
-			Name:   aws.String(fmt.Sprintf("tag:%s", key)),
+			Name:   new(fmt.Sprintf("tag:%s", key)),
 			Values: []string{value},
 		})
 	}
 	filters = append(filters, types.Filter{
-		Name: aws.String("instance-state-name"),
+		Name: new("instance-state-name"),
 		Values: []string{
 			string(types.InstanceStateNamePending),
 			string(types.InstanceStateNameRunning),
@@ -203,17 +204,16 @@ func (h *AWSProvider) PowerOnEC2Instances(instanceIDs []string) error {
 	// necessary permissions to monitor the instance.
 	input := &ec2.StartInstancesInput{
 		InstanceIds: instanceIDs,
-		DryRun:      aws.Bool(true),
+		DryRun:      new(true),
 	}
 	_, err := h.svc.StartInstances(context.TODO(), input)
 	// If the error code is `DryRunOperation` it means we have the necessary
 	// permissions to Start this instance
 	if err != nil {
-		var ae smithy.APIError
-		if errors.As(err, &ae) {
+		if ae, ok := errors.AsType[smithy.APIError](err); ok {
 			if ae.ErrorCode() == "DryRunOperation" {
 				// Let's now set dry run to be false. This will allow us to start the instances
-				input.DryRun = aws.Bool(false)
+				input.DryRun = new(false)
 				_, err = h.svc.StartInstances(context.TODO(), input)
 			}
 		}
@@ -228,10 +228,9 @@ func (h *AWSProvider) PowerOnRDSInstances(servers []*Server) error {
 	}
 	var g errgroup.Group
 	for _, server := range servers {
-		s := server
 		g.Go(func() error {
 			_, err := h.rds.StartDBInstance(context.TODO(), &rds.StartDBInstanceInput{
-				DBInstanceIdentifier: s.ID,
+				DBInstanceIdentifier: server.ID,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to start RDS instance %s: %v", aws.ToString(server.ID), err)
@@ -279,17 +278,16 @@ func (h *AWSProvider) PowerOffEC2Instances(instanceIDs []string) error {
 	// necessary permissions to monitor the instance.
 	input := &ec2.StopInstancesInput{
 		InstanceIds: instanceIDs,
-		DryRun:      aws.Bool(true),
+		DryRun:      new(true),
 	}
 	_, err := h.svc.StopInstances(context.TODO(), input)
 	// If the error code is `DryRunOperation` it means we have the necessary
 	// permissions to Stop this instance
 	if err != nil {
-		var ae smithy.APIError
-		if errors.As(err, &ae) {
+		if ae, ok := errors.AsType[smithy.APIError](err); ok {
 			if ae.ErrorCode() == "DryRunOperation" {
 				// Let's now set dry run to be false. This will allow us to start the instances
-				input.DryRun = aws.Bool(false)
+				input.DryRun = new(false)
 				_, err = h.svc.StopInstances(context.TODO(), input)
 			}
 		}
@@ -304,10 +302,9 @@ func (h *AWSProvider) PowerOffRDSInstances(servers []*Server) error {
 	}
 	var g errgroup.Group
 	for _, server := range servers {
-		s := server
 		g.Go(func() error {
 			_, err := h.rds.StopDBInstance(context.TODO(), &rds.StopDBInstanceInput{
-				DBInstanceIdentifier: s.ID,
+				DBInstanceIdentifier: server.ID,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to stop RDS instance %s: %v", aws.ToString(server.ID), err)

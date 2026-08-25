@@ -22,22 +22,24 @@ THE SOFTWARE.
 package cmd
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	_ "embed"
 	"encoding/hex"
 	"fmt"
 	"html/template"
+	"maps"
 	"net/http"
 	"os"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"uuid"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/google/uuid"
 	"github.com/gorilla/sessions"
 	"golang.org/x/oauth2"
 
@@ -106,8 +108,8 @@ func (l *UserAwareLogger) ServeHTTP(rw http.ResponseWriter, r *http.Request, nex
 	sourceIP := r.RemoteAddr
 	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
 		// X-Forwarded-For can contain multiple IPs, take the first one (original client)
-		if idx := strings.Index(forwarded, ","); idx != -1 {
-			sourceIP = strings.TrimSpace(forwarded[:idx])
+		if before, _, ok := strings.Cut(forwarded, ","); ok {
+			sourceIP = strings.TrimSpace(before)
 		} else {
 			sourceIP = strings.TrimSpace(forwarded)
 		}
@@ -117,13 +119,8 @@ func (l *UserAwareLogger) ServeHTTP(rw http.ResponseWriter, r *http.Request, nex
 
 	userInfo := ""
 	if claims, ok := r.Context().Value(userSubjectKey).(map[string]string); ok && len(claims) > 0 {
-		keys := make([]string, 0, len(claims))
-		for key := range claims {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
 		parts := make([]string, 0, len(claims))
-		for _, key := range keys {
+		for _, key := range slices.Sorted(maps.Keys(claims)) {
 			parts = append(parts, fmt.Sprintf("%s=%s", key, claims[key]))
 		}
 		userInfo = fmt.Sprintf(" user=%s", strings.Join(parts, ","))
@@ -371,8 +368,8 @@ func (a *AzureProvider) GetServerBank(tags map[string]string) (*ServerBank, erro
 	}
 
 	// Sort servers by name
-	sort.Slice(serverBank.Servers, func(i, j int) bool {
-		return serverBank.Servers[i].Name < serverBank.Servers[j].Name
+	slices.SortFunc(serverBank.Servers, func(a, b *Server) int {
+		return cmp.Compare(a.Name, b.Name)
 	})
 
 	return serverBank, nil
@@ -660,7 +657,9 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, viper.GetString("path-prefix"), http.StatusFound)
 		return
 	}
-	state := uuid.NewString()
+	// NewV4, not New: the OIDC state is a CSRF token, so it must stay fully
+	// random. uuid.New is only "currently" V4 and may become time-ordered.
+	state := uuid.NewV4().String()
 	session, err := sessionStore.Get(r, "oidc")
 	if err != nil {
 		clearSessionAndRedirectToLogin(w, r, fmt.Sprintf("LoginHandler: session error: %v", err))
@@ -697,7 +696,7 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Clear the session cookie manually as a fallback
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure tracks the redirect URL scheme; hardcoding it true stops browsers from clearing the cookie over plain HTTP.
 		Name:     "oidc",
 		Value:    "",
 		Path:     normalizePathPrefix(),
@@ -719,10 +718,7 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Check for OAuth error response
 	if errCode := r.URL.Query().Get("error"); errCode != "" {
-		errDesc := r.URL.Query().Get("error_description")
-		if errDesc == "" {
-			errDesc = "Authentication failed"
-		}
+		errDesc := cmp.Or(r.URL.Query().Get("error_description"), "Authentication failed")
 		errorMsg := fmt.Sprintf("OAuth error: %s - %s", errCode, errDesc)
 
 		// Map common OAuth errors to user-friendly messages
@@ -778,7 +774,7 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Parse all claims into a map for flexible access
-	var allClaims map[string]interface{}
+	var allClaims map[string]any
 	if err := idToken.Claims(&allClaims); err != nil {
 		log.Printf("CallbackHandler: failed to parse claims: %v", err)
 		clearSessionAndRedirectToLogin(w, r, "CallbackHandler: failed to parse claims")
@@ -788,7 +784,7 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	// Extract groups for authorization
 	var groups []string
 	if groupsVal, ok := allClaims["groups"]; ok {
-		if groupsSlice, ok := groupsVal.([]interface{}); ok {
+		if groupsSlice, ok := groupsVal.([]any); ok {
 			for _, g := range groupsSlice {
 				if groupStr, ok := g.(string); ok {
 					groups = append(groups, groupStr)
@@ -886,10 +882,8 @@ func CallbackHandler(w http.ResponseWriter, r *http.Request) {
 
 func hasAllowedGroup(groups []string) bool {
 	for _, g := range groups {
-		for _, a := range allowedGroups {
-			if g == a {
-				return true
-			}
+		if slices.Contains(allowedGroups, g) {
+			return true
 		}
 	}
 	return false
@@ -911,7 +905,7 @@ func clearSessionAndRedirectToLogin(w http.ResponseWriter, r *http.Request, logM
 	}
 
 	// Also clear the session cookie manually as a fallback
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure tracks the request scheme; hardcoding it true stops browsers from clearing the cookie over plain HTTP.
 		Name:     "oidc",
 		Value:    "",
 		Path:     normalizePathPrefix(),

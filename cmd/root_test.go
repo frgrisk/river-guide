@@ -15,6 +15,14 @@ import (
 	"github.com/urfave/negroni/v3"
 )
 
+const (
+	testGroupAdmin   = "admin"
+	testClaimSub     = "sub"
+	testUserFullName = "John Doe"
+	testUserSubject  = "user123"
+	testUserEmail    = "user@example.com"
+)
+
 func TestExtractResourceGroupName(t *testing.T) {
 	vmID := "/subscriptions/11111111-2222-3333-4444-555555555555/resourceGroups/myResourceGroup/providers/Microsoft.Compute/virtualMachines/myVM"
 	got := extractResourceGroupName(vmID)
@@ -51,26 +59,26 @@ func TestHasAllowedGroup(t *testing.T) {
 	}{
 		{
 			name:          "user has allowed group",
-			userGroups:    []string{"admin", "users"},
-			allowedGroups: []string{"admin", "operators"},
+			userGroups:    []string{testGroupAdmin, "users"},
+			allowedGroups: []string{testGroupAdmin, "operators"},
 			want:          true,
 		},
 		{
 			name:          "user has no allowed groups",
 			userGroups:    []string{"users", "readers"},
-			allowedGroups: []string{"admin", "operators"},
+			allowedGroups: []string{testGroupAdmin, "operators"},
 			want:          false,
 		},
 		{
 			name:          "empty allowed groups",
-			userGroups:    []string{"admin"},
+			userGroups:    []string{testGroupAdmin},
 			allowedGroups: []string{},
 			want:          false,
 		},
 		{
 			name:          "empty user groups",
 			userGroups:    []string{},
-			allowedGroups: []string{"admin"},
+			allowedGroups: []string{testGroupAdmin},
 			want:          false,
 		},
 	}
@@ -213,12 +221,12 @@ func TestUserAwareLogger(t *testing.T) {
 		},
 		{
 			name:          "request with single claim",
-			userClaims:    map[string]string{"sub": "user123"},
+			userClaims:    map[string]string{testClaimSub: testUserSubject},
 			expectedInLog: "GET /test user=sub=user123 from= -> 200",
 		},
 		{
 			name:          "request with multiple claims",
-			userClaims:    map[string]string{"sub": "user123", "email": "user@example.com", "name": "John Doe"},
+			userClaims:    map[string]string{testClaimSub: testUserSubject, "email": testUserEmail, "name": testUserFullName},
 			expectedInLog: "GET /test user=",
 		},
 	}
@@ -260,10 +268,10 @@ func TestSessionClaimsSerialization(t *testing.T) {
 	// Test that individual claim strings can be serialized/deserialized by gob
 	// This is what gorilla/sessions uses internally when we store claims as separate keys
 
-	testSessionValues := map[string]interface{}{
-		"user_claim_sub":   "user123",
-		"user_claim_email": "user@example.com",
-		"user_claim_name":  "John Doe",
+	testSessionValues := map[string]any{
+		"user_claim_sub":   testUserSubject,
+		"user_claim_email": testUserEmail,
+		"user_claim_name":  testUserFullName,
 		"authenticated":    true,
 		"token_expiry":     int64(1234567890),
 	}
@@ -277,7 +285,7 @@ func TestSessionClaimsSerialization(t *testing.T) {
 	}
 
 	// Test gob decoding
-	var decoded map[string]interface{}
+	var decoded map[string]any
 	decoder := gob.NewDecoder(&buf)
 	err = decoder.Decode(&decoded)
 	if err != nil {
@@ -300,8 +308,7 @@ func TestSessionClaimsSerialization(t *testing.T) {
 	// Test claim reconstruction
 	reconstructedClaims := make(map[string]string)
 	for key, value := range decoded {
-		if strings.HasPrefix(key, "user_claim_") {
-			claimName := strings.TrimPrefix(key, "user_claim_")
+		if claimName, ok := strings.CutPrefix(key, "user_claim_"); ok {
 			if claimValue, ok := value.(string); ok {
 				reconstructedClaims[claimName] = claimValue
 			}
@@ -309,9 +316,9 @@ func TestSessionClaimsSerialization(t *testing.T) {
 	}
 
 	expectedClaims := map[string]string{
-		"sub":   "user123",
-		"email": "user@example.com",
-		"name":  "John Doe",
+		testClaimSub: testUserSubject,
+		"email":      testUserEmail,
+		"name":       testUserFullName,
 	}
 
 	if len(reconstructedClaims) != len(expectedClaims) {
